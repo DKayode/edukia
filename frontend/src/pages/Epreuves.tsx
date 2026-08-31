@@ -268,7 +268,7 @@ export default function Epreuves() {
     setFormData({
       titre: epreuve.titre,
       // Seuls Examens / Examens Nationaux sont sélectionnables — tout ancien type retombe sur Examens.
-      type: epreuve.type === "Examens Nationaux" ? "Examens Nationaux" : "Examens",
+      type: "Examens",   // seule valeur écrivable ; les examens nationaux ont leur ressource
       duree_minutes: epreuve.duree_minutes?.toString() || "",
       nombre_pages: epreuve.nombre_pages?.toString() || "",
       matiere_id: (epreuve.matiere_id || epreuve.matiere?.id)?.toString() || "",
@@ -403,7 +403,7 @@ export default function Epreuves() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="Examens">Examens</SelectItem>
-                      <SelectItem value="Examens Nationaux">Examens Nationaux</SelectItem>
+
                     </SelectContent>
                   </Select>
                 </div>
@@ -620,11 +620,13 @@ export default function Epreuves() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="ALL">Tous les types</SelectItem>
+                  {/* Types historiques : filtrables (1 304 épreuves sont « Devoirs »)
+                      mais plus écrivables. « Examens Nationaux » a disparu : ces
+                      contenus ont leur propre ressource, aucune épreuve n'en porte. */}
                   <SelectItem value="Interrogation">Interrogation</SelectItem>
                   <SelectItem value="Devoirs">Devoirs</SelectItem>
                   <SelectItem value="Concours">Concours</SelectItem>
                   <SelectItem value="Examens">Examens</SelectItem>
-                  <SelectItem value="Examens Nationaux">Examens Nationaux</SelectItem>
                 </SelectContent>
               </Select>
             </div>

@@ -1,6 +1,6 @@
-import { IsString, IsNumber, IsOptional, IsDate, IsEnum, IsInt } from 'class-validator';
+import { IsString, IsNumber, IsOptional, IsDate, IsEnum, IsInt, IsIn } from 'class-validator';
 import { Type } from 'class-transformer';
-import { EpreuveType, EpreuveSection } from '../entities/epreuve.entity';
+import { EpreuveType, EpreuveSection, WRITABLE_EPREUVE_TYPES } from '../entities/epreuve.entity';
 
 export class MajEpreuveDto {
   @IsOptional()
@@ -29,7 +29,7 @@ export class MajEpreuveDto {
   nombre_pages?: number;
 
   @IsOptional()
-  @IsEnum(EpreuveType, { message: 'Le type doit être une valeur valide' })
+  @IsIn(WRITABLE_EPREUVE_TYPES as unknown as string[], { message: "Le type doit être « Examens »" })
   type?: EpreuveType;
 
   @IsOptional()

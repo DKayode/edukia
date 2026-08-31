@@ -1,7 +1,7 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsString, IsNumber, IsOptional, IsDate, IsEnum, IsInt } from 'class-validator';
+import { IsString, IsNumber, IsOptional, IsDate, IsEnum, IsInt, IsIn } from 'class-validator';
 import { Type } from 'class-transformer';
-import { EpreuveType, EpreuveSection } from '../entities/epreuve.entity';
+import { EpreuveType, EpreuveSection, WRITABLE_EPREUVE_TYPES } from '../entities/epreuve.entity';
 
 export class CreerEpreuveDto {
   @ApiProperty({ example: 'Epreuve de Mathématiques 2023', description: 'Titre de l\'épreuve' })
@@ -36,9 +36,9 @@ export class CreerEpreuveDto {
   @IsNumber()
   nombre_pages?: number;
 
-  @ApiProperty({ enum: EpreuveType, description: 'Type d\'épreuve', required: false })
+  @ApiProperty({ enum: WRITABLE_EPREUVE_TYPES, description: "Type d'épreuve : « Examens » (défaut si absent). Les examens nationaux passent par /examens-nationaux.", required: false })
   @IsOptional()
-  @IsEnum(EpreuveType, { message: 'Le type doit être une valeur valide' })
+  @IsIn(WRITABLE_EPREUVE_TYPES as unknown as string[], { message: "Le type doit être « Examens »" })
   type?: EpreuveType;
 
   @ApiProperty({ example: 2023, description: 'Année de l\'épreuve', required: false })

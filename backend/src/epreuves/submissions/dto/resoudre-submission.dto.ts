@@ -1,6 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsInt, IsOptional, IsString, IsEnum } from 'class-validator';
-import { EpreuveSection, EpreuveType } from '../../entities/epreuve.entity';
+import { IsInt, IsOptional, IsString, IsEnum, IsIn } from 'class-validator';
+import { EpreuveSection, EpreuveType, WRITABLE_EPREUVE_TYPES } from '../../entities/epreuve.entity';
 
 // Admin edit of a PENDING submission. For each parent level the admin may pass
 // a real id (validated; the matching proposed_* name is cleared) OR overwrite
@@ -58,8 +58,8 @@ export class ResoudreSubmissionDto {
   @IsEnum(EpreuveSection, { message: 'La section doit être une valeur valide' })
   section?: EpreuveSection;
 
-  @ApiProperty({ enum: EpreuveType, required: false, description: "Type d'épreuve (Examens Nationaux, Examens, Concours, …)" })
+  @ApiProperty({ enum: WRITABLE_EPREUVE_TYPES, required: false, description: "Type d'épreuve : « Examens ». Un examen national se dépose via /examens-nationaux/submissions." })
   @IsOptional()
-  @IsEnum(EpreuveType, { message: 'Le type doit être une valeur valide' })
+  @IsIn(WRITABLE_EPREUVE_TYPES as unknown as string[], { message: "Le type doit être « Examens »" })
   type?: EpreuveType;
 }

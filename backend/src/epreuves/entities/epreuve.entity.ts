@@ -15,12 +15,24 @@ export enum EpreuveSection {
   RATTRAPAGE = 'rattrapage',
 }
 
-// Les épreuves n'acceptent plus que EXAMENS ou EXAMENS NATIONAUX. Toute autre
-// valeur — un ancien type (Interrogation/Devoirs/Concours), une valeur vide ou
-// invalide — est ramenée à EXAMENS. Point unique de vérité, appliqué à chaque
-// écriture (création dashboard, mise à jour, soumission, approbation).
-export function normalizeEpreuveType(type?: EpreuveType | string | null): EpreuveType {
-  return type === EpreuveType.EXAMEN_NATIONAL ? EpreuveType.EXAMEN_NATIONAL : EpreuveType.EXAMENS;
+// Une épreuve ne peut plus être écrite qu'en « Examens ».
+//
+// « Examens Nationaux » était une étape intermédiaire (migrations 070/071) pour
+// marquer un examen national sur une épreuve. Ces contenus ont désormais leur
+// propre ressource — table examens_nationaux et endpoints /examens-nationaux —
+// et la valeur n'a jamais servi en production : 0 épreuve la porte. On cesse
+// donc de l'accepter en écriture, y compris sur les soumissions : un examen
+// national se dépose via POST /examens-nationaux/submissions, pas ici.
+export const WRITABLE_EPREUVE_TYPES = [EpreuveType.EXAMENS] as const;
+
+/**
+ * Type de l'épreuve réellement créée. Toujours « Examens » : les examens
+ * nationaux ne sont plus des épreuves, ils ont leur propre ressource. Conservé
+ * comme point unique de vérité pour les écritures (création dashboard, mise à
+ * jour, approbation d'une soumission).
+ */
+export function normalizeEpreuveType(_type?: EpreuveType | string | null): EpreuveType {
+    return EpreuveType.EXAMENS;
 }
 
 @Entity('epreuves')

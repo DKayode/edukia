@@ -102,7 +102,7 @@ function ResolveDialog({ submission, open, onOpenChange }: {
             setAnnee(submission.annee != null ? String(submission.annee) : '');
             setSection(submission.section ?? '');
             // Seuls Examens / Examens Nationaux — tout autre (ou null) retombe sur Examens.
-            setType(submission.type === 'Examens Nationaux' ? 'Examens Nationaux' : 'Examens');
+            setType('Examens');   // l'épreuve créée est toujours « Examens »
         }
     }, [open, submission?.id]);
 
@@ -362,7 +362,6 @@ function ResolveDialog({ submission, open, onOpenChange }: {
                                 </SelectTrigger>
                                 <SelectContent>
                                     <SelectItem value="Examens">Examens</SelectItem>
-                                    <SelectItem value="Examens Nationaux">Examens Nationaux</SelectItem>
                                 </SelectContent>
                             </Select>
                         </div>
