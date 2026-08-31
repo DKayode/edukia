@@ -94,16 +94,33 @@ jobs:
         env:
           VPS_HOST: ${{ secrets.VPS_HOST }}
           VPS_PORT: ${{ secrets.VPS_PORT || 22 }}
+        # Le port 22 n'est filtré NI par le VPS (pas de fail2ban, ufw inactif,
+        # iptables/nftables sans règle sur 22, conntrack à 59/262144) NI par
+        # sshd : lors de l'échec du 2026-08-11, sshd n'a rien journalisé entre
+        # 16:24 (déploiement manuel réussi) et 16:42. Les paquets SYN du runner
+        # n'atteignaient pas la machine — filtrage en amont, côté hébergeur ou
+        # sur le chemin depuis les plages GitHub, et propre à l'IP du runner :
+        # un autre runner s'était connecté huit minutes plus tôt.
+        #
+        # Rien à corriger côté serveur : on attend simplement que ça passe.
+        # 2,5 minutes ne suffisaient pas (échecs des 2026-08-09 et 2026-08-11) ;
+        # 10 minutes couvrent ces deux épisodes, le job SSH qui suit ayant de
+        # toute façon son propre timeout.
         run: |
-          for i in $(seq 1 10); do
+          ATTEMPTS=40
+          DELAY=15
+          for i in $(seq 1 $ATTEMPTS); do
             if timeout 10 bash -c "cat < /dev/null > /dev/tcp/$VPS_HOST/$VPS_PORT" 2>/dev/null; then
               echo "VPS $VPS_HOST:$VPS_PORT reachable (attempt $i)."
               exit 0
             fi
-            echo "Attempt $i: $VPS_HOST:$VPS_PORT not reachable yet, retrying in 15s…"
-            sleep 15
+            # Une ligne toutes les minutes : le journal reste lisible.
+            if [ $((i % 4)) -eq 1 ]; then
+              echo "Attempt $i/$ATTEMPTS: $VPS_HOST:$VPS_PORT not reachable yet, still retrying…"
+            fi
+            sleep $DELAY
           done
-          echo "::error::VPS $VPS_HOST:$VPS_PORT unreachable after 10 attempts (~2.5 min)."
+          echo "::error::VPS $VPS_HOST:$VPS_PORT unreachable after $ATTEMPTS attempts (~10 min). Le VPS répond-il en HTTPS ? Si oui, le filtrage est en amont (hébergeur / chemin réseau) : relancer le job suffit en général."
           exit 1
 
       - name: Déployer sur le VPS
