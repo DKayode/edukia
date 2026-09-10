@@ -22,7 +22,10 @@ describe('ParrainageService', () => {
       find: jest.fn().mockResolvedValue([]),
     };
     // Aucun wallet trouvé = wallet à créer, pas un wallet bloqué.
-    dataSource = { query: jest.fn().mockResolvedValue([]) };
+    dataSource = {
+      query: jest.fn().mockResolvedValue([]),
+      transaction: jest.fn(),
+    };
     credit = { execute: jest.fn().mockResolvedValue({ duplicated: false }) };
     // `moduleRef.get` remplace l'injection directe : le use-case est résolu
     // au moment de l'appel pour ne pas fermer un cycle de modules.
@@ -107,6 +110,129 @@ describe('ParrainageService', () => {
 
       credit.execute.mockResolvedValue({ duplicated: false });
       expect((await service.verserCommission(abonnement() as any)).verse).toBe(true);
+    });
+  });
+
+  describe('reprise après remboursement', () => {
+    const commissionVersee = () => abonnement({ commission_versee: true });
+
+    it('annule la commission et débite le solde disponible dans une transaction', async () => {
+      const manager = {
+        query: jest.fn()
+          .mockResolvedValueOnce([])
+          .mockResolvedValueOnce([{
+            id: 'tx-credit',
+            wallet_id: 'wallet-1',
+            amount: '200',
+            status: 'COMPLETED',
+            available_balance: '500',
+            pending_balance: '50',
+          }])
+          .mockResolvedValue([]),
+      };
+      dataSource.transaction.mockImplementation((callback: any) => callback(manager));
+
+      const resultat = await service.reprendreCommission(commissionVersee() as any);
+
+      expect(resultat).toEqual({ reprise: true, montant: 200 });
+      expect(manager.query).toHaveBeenCalledWith(
+        expect.stringContaining('UPDATE wallets'),
+        ['wallet-1', 300, 50],
+      );
+      expect(manager.query).toHaveBeenCalledWith(
+        expect.stringContaining("SET status = 'CANCELLED'"),
+        ['tx-credit'],
+      );
+      expect(manager.query).toHaveBeenCalledWith(
+        expect.stringContaining('INSERT INTO wallet_transactions'),
+        expect.arrayContaining([
+          'wallet-1',
+          -200,
+          550,
+          350,
+          300,
+          50,
+          'PARRAINAGE_ABONNEMENT_REFUND:abo-1',
+        ]),
+      );
+      expect(manager.query).toHaveBeenCalledWith(
+        expect.stringContaining('UPDATE abonnements SET commission_versee = false'),
+        [1],
+      );
+    });
+
+    it('débite le solde en attente quand la commission attendait une validation', async () => {
+      const manager = {
+        query: jest.fn()
+          .mockResolvedValueOnce([])
+          .mockResolvedValueOnce([{
+            id: 'tx-credit',
+            wallet_id: 'wallet-1',
+            amount: '200',
+            status: 'PENDING',
+            available_balance: '100',
+            pending_balance: '250',
+          }])
+          .mockResolvedValue([]),
+      };
+      dataSource.transaction.mockImplementation((callback: any) => callback(manager));
+
+      expect(await service.reprendreCommission(commissionVersee() as any)).toEqual({ reprise: true, montant: 200 });
+      expect(manager.query).toHaveBeenCalledWith(
+        expect.stringContaining('UPDATE wallets'),
+        ['wallet-1', 100, 50],
+      );
+    });
+
+    it('est idempotente quand la reprise existe déjà', async () => {
+      const manager = {
+        query: jest.fn()
+          .mockResolvedValueOnce([{ amount: '200' }])
+          .mockResolvedValueOnce([]),
+      };
+      dataSource.transaction.mockImplementation((callback: any) => callback(manager));
+
+      const resultat = await service.reprendreCommission(commissionVersee() as any);
+
+      expect(resultat).toEqual({ reprise: true, dupliquee: true, montant: 200 });
+      expect(manager.query).toHaveBeenCalledTimes(2);
+      expect(manager.query).not.toHaveBeenCalledWith(
+        expect.stringContaining('UPDATE wallets'),
+        expect.anything(),
+      );
+    });
+
+    it('ne touche pas au wallet si aucune commission n’avait été versée', async () => {
+      expect(await service.reprendreCommission(abonnement() as any)).toEqual({
+        reprise: false,
+        motif: 'COMMISSION_NON_VERSEE',
+      });
+      expect(dataSource.transaction).not.toHaveBeenCalled();
+    });
+
+    it('laisse le remboursement réussir si le parrain a déjà dépensé la commission', async () => {
+      const manager = {
+        query: jest.fn()
+          .mockResolvedValueOnce([])
+          .mockResolvedValueOnce([{
+            id: 'tx-credit',
+            wallet_id: 'wallet-1',
+            amount: '200',
+            status: 'COMPLETED',
+            available_balance: '100',
+            pending_balance: '0',
+          }]),
+      };
+      dataSource.transaction.mockImplementation((callback: any) => callback(manager));
+
+      await expect(service.reprendreCommission(commissionVersee() as any)).resolves.toEqual({
+        reprise: false,
+        motif: 'SOLDE_INSUFFISANT',
+      });
+      expect(manager.query).not.toHaveBeenCalledWith(
+        expect.stringContaining('UPDATE wallets'),
+        expect.anything(),
+      );
     });
   });
 
