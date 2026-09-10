@@ -3,6 +3,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { AbonnementsService } from '../abonnements/abonnements.service';
+import { ParrainageService } from '../abonnements/parrainage.service';
 import { TypeEvenementAbonnement } from '../abonnements/entities/abonnement-evenement.entity';
 import { Abonnement, StatutAbonnement } from '../abonnements/entities/abonnement.entity';
 import { PaginationDto } from '../common/dto/pagination.dto';
@@ -45,6 +46,7 @@ export class PaiementsService {
     @InjectRepository(Utilisateur) private readonly utilisateurs: Repository<Utilisateur>,
     private readonly providers: PaiementProviderRegistry,
     private readonly abonnementsService: AbonnementsService,
+    private readonly parrainageService: ParrainageService,
     private readonly credentials: PaiementCredentialsService,
     private readonly dataSource: DataSource,
   ) {}
@@ -211,26 +213,54 @@ export class PaiementsService {
 
   async rembourser(pays: string, uuid: string, dto: { motif?: string }) {
     const paiement = await this.paiementAdmin(pays, uuid);
-    if (paiement.statut !== StatutPaiement.REUSSI) {
+    const dejaRembourse = paiement.statut === StatutPaiement.REMBOURSE;
+    if (paiement.statut !== StatutPaiement.REUSSI && !dejaRembourse) {
       throw new ConflictException('Seul un paiement réussi peut être marqué remboursé');
     }
-    paiement.statut = StatutPaiement.REMBOURSE;
-    paiement.payload_confirmation = {
-      ...(paiement.payload_confirmation ?? {}),
-      remboursement: { motif: dto.motif ?? null, date: new Date().toISOString() },
-    };
-    await this.paiements.save(paiement);
+
+    const remboursementExistant = (paiement.payload_confirmation as any)?.remboursement ?? {};
+    if (!dejaRembourse) {
+      paiement.statut = StatutPaiement.REMBOURSE;
+      paiement.payload_confirmation = {
+        ...(paiement.payload_confirmation ?? {}),
+        remboursement: {
+          motif: dto.motif ?? null,
+          date: new Date().toISOString(),
+        },
+      };
+      await this.paiements.save(paiement);
+    }
+
+    let repriseCommission: Awaited<ReturnType<ParrainageService['reprendreCommission']>> | null = null;
     if (paiement.abonnement_id) {
       const abonnement = await this.abonnements.findOne({ where: { id: paiement.abonnement_id } });
-      if (abonnement && abonnement.statut === StatutAbonnement.ACTIF) {
-        abonnement.statut = StatutAbonnement.REMBOURSE;
-        await this.abonnements.save(abonnement);
-        await this.abonnementsService.journaliser(abonnement.id, TypeEvenementAbonnement.REMBOURSE, {
-          paiement: paiement.reference,
-          motif: dto.motif ?? null,
-        });
+      if (abonnement) {
+        const vientDEtreRembourse = abonnement.statut === StatutAbonnement.ACTIF;
+        if (vientDEtreRembourse) {
+          abonnement.statut = StatutAbonnement.REMBOURSE;
+          await this.abonnements.save(abonnement);
+        }
+
+        repriseCommission = await this.parrainageService.reprendreCommission(abonnement);
+        if (vientDEtreRembourse) {
+          await this.abonnementsService.journaliser(abonnement.id, TypeEvenementAbonnement.REMBOURSE, {
+            paiement: paiement.reference,
+            motif: dto.motif ?? null,
+            repriseCommission,
+          });
+        }
       }
     }
+
+    paiement.payload_confirmation = {
+      ...(paiement.payload_confirmation ?? {}),
+      remboursement: {
+        ...remboursementExistant,
+        ...((paiement.payload_confirmation as any)?.remboursement ?? {}),
+        reprise_commission: repriseCommission,
+      },
+    };
+    await this.paiements.save(paiement);
     return this.paiementAdmin(pays, uuid);
   }
 

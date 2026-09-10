@@ -18,6 +18,13 @@ export type MotifRefusCommission =
   | 'PARRAIN_DESACTIVE'
   | 'WALLET_INDISPONIBLE';
 
+export type MotifRepriseCommission =
+  | 'COMMISSION_NON_VERSEE'
+  | 'COMMISSION_INTROUVABLE'
+  | 'COMMISSION_DEJA_ANNULEE'
+  | 'SOLDE_INSUFFISANT'
+  | 'ERREUR_TECHNIQUE';
+
 @Injectable()
 export class ParrainageService {
   private readonly logger = new Logger(ParrainageService.name);
@@ -137,6 +144,141 @@ export class ParrainageService {
         `Versement de commission impossible pour ${abonnement.uuid}: ${err?.message ?? err}`,
       );
       return { verse: false };
+    }
+  }
+
+  /**
+   * Reprend la commission d'un abonnement remboursé.
+   *
+   * La commission d'origine est annulée et un ajustement débiteur est inscrit
+   * dans le grand livre. La référence unique rend l'opération rejouable sans
+   * débiter deux fois le parrain. Comme le versement, la reprise est
+   * best-effort : un solde insuffisant ne doit pas faire échouer le
+   * remboursement du client et l'admin pourra relancer l'opération.
+   */
+  async reprendreCommission(abonnement: Abonnement): Promise<{
+    reprise: boolean;
+    dupliquee?: boolean;
+    montant?: number;
+    motif?: MotifRepriseCommission;
+  }> {
+    if (!abonnement.commission_versee) {
+      return { reprise: false, motif: 'COMMISSION_NON_VERSEE' };
+    }
+
+    const referenceCommission = `PARRAINAGE_ABONNEMENT_REWARD:${abonnement.uuid}`;
+    const referenceReprise = `PARRAINAGE_ABONNEMENT_REFUND:${abonnement.uuid}`;
+
+    try {
+      return await this.dataSource.transaction(async (manager) => {
+        const [repriseExistante] = await manager.query(
+          `SELECT amount FROM wallet_transactions WHERE reference = $1 LIMIT 1`,
+          [referenceReprise],
+        );
+        if (repriseExistante) {
+          await manager.query(
+            `UPDATE abonnements SET commission_versee = false WHERE id = $1`,
+            [abonnement.id],
+          );
+          return {
+            reprise: true,
+            dupliquee: true,
+            montant: Math.abs(Number(repriseExistante.amount)),
+          };
+        }
+
+        const [commission] = await manager.query(
+          `SELECT wt.id,
+                  wt.wallet_id,
+                  wt.amount,
+                  wt.status,
+                  w.available_balance,
+                  w.pending_balance
+             FROM wallet_transactions wt
+             JOIN wallets w ON w.id = wt.wallet_id
+            WHERE wt.reference = $1
+              AND wt.type = 'REWARD'
+              AND wt.reward_source_type_code = $2
+            LIMIT 1
+            FOR UPDATE OF wt, w`,
+          [referenceCommission, RewardSourceTypeCode.PARRAINAGE_ABONNEMENT],
+        );
+        if (!commission) {
+          return { reprise: false, motif: 'COMMISSION_INTROUVABLE' as const };
+        }
+        if (commission.status === 'CANCELLED') {
+          return { reprise: false, motif: 'COMMISSION_DEJA_ANNULEE' as const };
+        }
+
+        const montant = Number(commission.amount);
+        const disponibleAvant = Number(commission.available_balance);
+        const attenteAvant = Number(commission.pending_balance);
+        const commissionEnAttente = commission.status === 'PENDING';
+        const soldeCible = commissionEnAttente ? attenteAvant : disponibleAvant;
+        if (soldeCible < montant) {
+          throw new Error('SOLDE_INSUFFISANT');
+        }
+
+        const disponibleApres = commissionEnAttente
+          ? disponibleAvant
+          : disponibleAvant - montant;
+        const attenteApres = commissionEnAttente
+          ? attenteAvant - montant
+          : attenteAvant;
+        const soldeAvant = disponibleAvant + attenteAvant;
+        const soldeApres = disponibleApres + attenteApres;
+
+        await manager.query(
+          `UPDATE wallets
+              SET available_balance = $2,
+                  pending_balance = $3,
+                  version = version + 1,
+                  updated_at = NOW()
+            WHERE id = $1`,
+          [commission.wallet_id, disponibleApres, attenteApres],
+        );
+        await manager.query(
+          `UPDATE wallet_transactions SET status = 'CANCELLED' WHERE id = $1`,
+          [commission.id],
+        );
+        await manager.query(
+          `INSERT INTO wallet_transactions (
+             wallet_id, type, amount, balance_before, balance_after,
+             available_balance_after, pending_balance_after, reference,
+             description, status, metadata
+           ) VALUES ($1, 'ADJUSTMENT', $2, $3, $4, $5, $6, $7, $8, 'COMPLETED', $9::jsonb)`,
+          [
+            commission.wallet_id,
+            -montant,
+            soldeAvant,
+            soldeApres,
+            disponibleApres,
+            attenteApres,
+            referenceReprise,
+            `Reprise de commission - abonnement rembourse ${abonnement.uuid}`,
+            JSON.stringify({
+              operation: 'REPRISE_COMMISSION_REMBOURSEMENT',
+              abonnementUuid: abonnement.uuid,
+              transactionCommissionId: commission.id,
+              referenceCommission,
+            }),
+          ],
+        );
+        await manager.query(
+          `UPDATE abonnements SET commission_versee = false WHERE id = $1`,
+          [abonnement.id],
+        );
+
+        return { reprise: true, montant };
+      });
+    } catch (err) {
+      const motif: MotifRepriseCommission = err?.message === 'SOLDE_INSUFFISANT'
+        ? 'SOLDE_INSUFFISANT'
+        : 'ERREUR_TECHNIQUE';
+      this.logger.warn(
+        `Reprise de commission impossible pour ${abonnement.uuid}: ${err?.message ?? err}`,
+      );
+      return { reprise: false, motif };
     }
   }
 
