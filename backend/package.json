@@ -32,6 +32,7 @@
     "@nestjs/platform-express": "^10.2.8",
     "@nestjs/schedule": "^6.1.0",
     "@nestjs/swagger": "^7.0.0",
+    "@nestjs/throttler": "^6.5.0",
     "@nestjs/typeorm": "^10.0.2",
     "@prisma/adapter-pg": "^7.3.0",
     "@prisma/client": "^7.3.0",
