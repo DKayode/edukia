@@ -1,10 +1,11 @@
 import { ParrainageService } from '../abonnements/parrainage.service';
 import { StatutAbonnement } from '../abonnements/entities/abonnement.entity';
 import { PaiementsService } from './paiements.service';
-import { StatutPaiement } from './shared/paiement.enums';
+import { ModePaiement, PrestatairePaiement, StatutPaiement } from './shared/paiement.enums';
 
 describe('PaiementsService - remboursement et commission', () => {
   let paiements: any;
+  let configurations: any;
   let abonnements: any;
   let abonnementsService: any;
   let parrainageService: jest.Mocked<Pick<ParrainageService, 'reprendreCommission'>>;
@@ -21,6 +22,7 @@ describe('PaiementsService - remboursement et commission', () => {
 
   beforeEach(() => {
     paiements = { save: jest.fn(async (valeur) => valeur) };
+    configurations = { find: jest.fn() };
     abonnements = {
       findOne: jest.fn().mockResolvedValue({
         id: 11,
@@ -37,7 +39,7 @@ describe('PaiementsService - remboursement et commission', () => {
     service = new PaiementsService(
       paiements as any,
       {} as any,
-      {} as any,
+      configurations as any,
       abonnements as any,
       {} as any,
       {} as any,
@@ -46,6 +48,55 @@ describe('PaiementsService - remboursement et commission', () => {
       {} as any,
       {} as any,
     );
+  });
+
+  it('expose uniquement les informations publiques des prestataires actifs du pays', async () => {
+    configurations.find.mockResolvedValue([
+      {
+        pays: 'benin',
+        prestataire: PrestatairePaiement.FEDAPAY,
+        mode: ModePaiement.LIVE,
+        devise: 'XOF',
+        montant_min: 500,
+        montant_max: 500000,
+        credentials_chiffres: { secret_key: 'secret' },
+        credentials_masquees: { secret_key: '****cret' },
+      },
+      {
+        pays: 'benin',
+        prestataire: PrestatairePaiement.CINETPAY,
+        mode: ModePaiement.SANDBOX,
+        devise: 'XOF',
+        montant_min: null,
+        montant_max: null,
+      },
+    ]);
+
+    await expect(service.prestatairesDisponibles('benin')).resolves.toEqual({
+      pays: 'benin',
+      prestataires: [{
+        pays: 'benin',
+        prestataire: PrestatairePaiement.FEDAPAY,
+        libelle: 'FedaPay',
+        mode: ModePaiement.LIVE,
+        devise: 'XOF',
+        montant_min: 500,
+        montant_max: 500000,
+      }],
+    });
+    expect(configurations.find).toHaveBeenCalledWith({
+      where: { pays: 'benin', est_actif: true },
+      order: { prestataire: 'ASC' },
+    });
+  });
+
+  it('renvoie une liste vide lorsqu’aucun prestataire n’est disponible', async () => {
+    configurations.find.mockResolvedValue([]);
+
+    await expect(service.prestatairesDisponibles('togo')).resolves.toEqual({
+      pays: 'togo',
+      prestataires: [],
+    });
   });
 
   it('reprend la commission lorsqu’un paiement réussi est remboursé', async () => {
