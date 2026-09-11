@@ -193,6 +193,10 @@ jobs:
             # désactive d'elle-même, sans erreur ni appel sortant.
             KESSIAH_API_BASE_URL=${{ secrets.KESSIAH_API_BASE_URL }}
             KESSIAH_SERVICE_KEY=${{ secrets.KESSIAH_SERVICE_KEY }}
+            # Verrou des abonnements : les refus deviennent effectifs. Doit
+            # aussi figurer dans le bloc environment de docker-compose.yml, le
+            # service backend ne lisant pas .env directement.
+            ABONNEMENTS_VERROU_ACTIF=true
             ENV_EOF
 
             # Créer le fichier docker-compose.yml depuis le contenu du repo
