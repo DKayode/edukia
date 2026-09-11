@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -13,10 +13,13 @@ import { BlacklistedToken } from './entities/blacklisted-token.entity';
 import { LoginEvent } from './entities/login-event.entity';
 import { MailModule } from '../mail/mail.module';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { AbonnementsModule } from '../abonnements/abonnements.module';
 
 @Module({
   imports: [
     UtilisateursModule,
+    // Pour poser `abonnement_actif` dans le jeton — voir AuthService.payloadJeton.
+    forwardRef(() => AbonnementsModule),
     PassportModule,
     ConfigModule,
     JwtModule.registerAsync({

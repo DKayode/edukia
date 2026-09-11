@@ -66,6 +66,9 @@ describe('AuthService — code de réinitialisation', () => {
       {} as any,
       { getRepository: () => refreshTokenRepository } as any,
       mail,
+      // Le service de droits ne sert qu'à poser le claim d'abonnement du jeton,
+      // hors sujet pour la réinitialisation de mot de passe.
+      { hasActiveSubscription: jest.fn().mockResolvedValue(false) } as any,
     );
   });
 

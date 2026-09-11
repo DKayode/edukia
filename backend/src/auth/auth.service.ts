@@ -1,5 +1,6 @@
 import { Injectable, UnauthorizedException, Logger } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { EntitlementService } from '../abonnements/entitlement.service';
 import { Repository, LessThan } from 'typeorm';
 import { UtilisateursService } from '../utilisateurs/utilisateurs.service';
 import { LoginDto } from './dto/login.dto';
@@ -13,6 +14,7 @@ import * as crypto from 'crypto';
 import { MailService } from '../mail/mail.service';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { DataSourceResolver } from '../config/data-source-resolver.service';
+import { JwtPayload } from './interfaces/jwt-payload.interface';
 
 @Injectable()
 export class AuthService {
@@ -31,7 +33,8 @@ export class AuthService {
     private readonly utilisateursService: UtilisateursService,
     private readonly jwtService: JwtService,
     private readonly resolver: DataSourceResolver,
-    private readonly mailService: MailService
+    private readonly mailService: MailService,
+    private readonly entitlement: EntitlementService,
   ) { }
 
   private get refreshTokenRepository(): Repository<RefreshToken> {
@@ -91,6 +94,38 @@ export class AuthService {
     return user;
   }
 
+  /**
+   * Le contenu du jeton d'accès, fabriqué en un seul endroit.
+   *
+   * `abonnement_actif` est là pour Ketsia, qui ne connaît ni les comptes ni les
+   * paiements et lit ce seul claim pour décider si l'usage de l'IA est
+   * plafonné. Nom, forme et type sont ceux qu'elle attend par défaut — à plat,
+   * booléen — donc rien à configurer de son côté.
+   *
+   * C'est une PHOTOGRAPHIE, et le jeton vit 24 h : souscrire ne la met pas à
+   * jour. Le client doit rafraîchir son jeton après un achat, sinon l'abonné
+   * reste plafonné jusqu'à l'expiration. Le refresh repasse ici, c'est ce qui
+   * rend la correction possible sans reconnexion.
+   *
+   * Le droit n'est jamais REFUSÉ sur la foi de ce claim côté Edukia : les
+   * gardes interrogent la base à chaque appel. Le claim ne sert qu'aux services
+   * tiers qui n'ont pas accès à cette base.
+   */
+  private async payloadJeton(user: { id: number; email: string; role: any }): Promise<JwtPayload> {
+    let abonnementActif = false;
+    try {
+      abonnementActif = await this.entitlement.hasActiveSubscription(user.id);
+    } catch (err) {
+      // Une panne de lecture d'abonnement ne doit pas empêcher de se connecter.
+      // On retombe sur `false` : un abonné verra son quota IA le temps d'un
+      // rafraîchissement, ce qui est préférable à un refus de connexion.
+      this.logger.warn(
+        `Lecture de l'abonnement impossible pour le jeton de ${user.id} : ${err?.message ?? err}`,
+      );
+    }
+    return { sub: user.id, email: user.email, role: user.role, abonnement_actif: abonnementActif };
+  }
+
   async login(loginDto: LoginDto, appareil?: AppareilType): Promise<{ access_token: string; refresh_token: string }> {
     const identifier = loginDto.identifiant || loginDto.email;
     if (!identifier) {
@@ -118,8 +153,7 @@ export class AuthService {
     // Generate access token (1d). Country is intentionally not in the
     // payload — accounts are cross-country and switch scope via the
     // request's ?country= / body.pays without re-authenticating.
-    const payload = { sub: user.id, email: user.email, role: user.role };
-    const accessToken = this.jwtService.sign(payload);
+    const accessToken = this.jwtService.sign(await this.payloadJeton(user));
 
     // Generate refresh token (30 days)
     const refreshToken = await this.createRefreshToken(user.id, appareil || AppareilType.WEB);
@@ -209,8 +243,7 @@ export class AuthService {
     }
 
     // Generate new access token (cross-country, see login())
-    const payload = { sub: user.id, email: user.email, role: user.role };
-    const accessToken = this.jwtService.sign(payload);
+    const accessToken = this.jwtService.sign(await this.payloadJeton(user));
 
     // Une session renouvelée est une session active : sans cette ligne, seules
     // les ré-authentifications seraient comptées et les utilisateurs les plus
