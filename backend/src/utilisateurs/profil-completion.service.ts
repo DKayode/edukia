@@ -15,7 +15,6 @@ import { Utilisateur } from './entities/utilisateur.entity';
 export const CHAMPS_PROFIL: { champ: string; libelle: string }[] = [
   { champ: 'nom', libelle: 'Nom' },
   { champ: 'prenom', libelle: 'Prénom' },
-  { champ: 'email', libelle: 'Adresse email' },
   { champ: 'sexe', libelle: 'Sexe' },
   { champ: 'pseudo', libelle: 'Pseudo' },
   { champ: 'telephone', libelle: 'Numéro de téléphone' },
@@ -28,7 +27,13 @@ export const CHAMPS_PROFIL: { champ: string; libelle: string }[] = [
   { champ: 'filiere_id', libelle: 'Filière' },
   { champ: 'niveau_etude_id', libelle: 'Niveau d’étude' },
   { champ: 'type_profil_id', libelle: 'Type de profil' },
-  { champ: 'email_verifie', libelle: 'Email vérifié' },
+  // La situation de handicap est délibérément absente : sa colonne porte
+  // DEFAULT false, elle n'est donc jamais vide et vaudrait un point acquis
+  // d'avance pour tout le monde. La compter n'apprendrait rien.
+  // L'adresse et sa vérification ne font qu'un champ : sans adresse il n'y a
+  // pas de compte, donc la compter à part reviendrait à créditer tout le monde
+  // d'un point acquis d'avance. Seule la vérification distingue les profils.
+  { champ: 'email_verifie', libelle: 'Adresse email vérifiée' },
 ];
 
 export interface Completion {
@@ -63,14 +68,14 @@ export class ProfilCompletionService {
   }
 
   async reglages(pays = 'benin') {
-    const r = await this.reglage(pays);
+    const [r, taux] = await Promise.all([this.reglage(pays), this.tauxParChamp(pays)]);
     return {
       uuid: r.uuid,
       pays,
       seuil_completion: r.seuil,
       est_actif: r.estActif,
       champs_exclus: r.champsExclus,
-      champs_disponibles: CHAMPS_PROFIL,
+      champs_disponibles: taux,
     };
   }
 
@@ -93,6 +98,50 @@ export class ProfilCompletionService {
   /** Champs retenus après exclusions. */
   private champsRetenus(exclus: string[]) {
     return CHAMPS_PROFIL.filter((c) => !exclus.includes(c.champ));
+  }
+
+  /**
+   * « Ce champ est-il rempli ? », en SQL. Doit rester le miroir exact de
+   * `estRempli` : deux définitions divergentes donneraient un pourcentage
+   * individuel et un agrégat qui ne se recoupent pas, sans que rien ne le
+   * signale.
+   */
+  private static sqlRempli(champ: string): string {
+    if (champ === 'photo') {
+      return `(CASE WHEN COALESCE(NULLIF(TRIM(profil_photo_path), ''), NULLIF(TRIM(photo), '')) IS NOT NULL THEN 1 ELSE 0 END)`;
+    }
+    if (champ === 'email_verifie') return `(CASE WHEN verifier THEN 1 ELSE 0 END)`;
+    if (['departement_id', 'ville_id', 'etablissement_id', 'filiere_id', 'niveau_etude_id', 'type_profil_id', 'sexe', 'age_group'].includes(champ)) {
+      return `(CASE WHEN ${champ} IS NOT NULL THEN 1 ELSE 0 END)`;
+    }
+    return `(CASE WHEN NULLIF(TRIM(${champ}), '') IS NOT NULL THEN 1 ELSE 0 END)`;
+  }
+
+  /**
+   * Combien de comptes ont réellement rempli chaque champ.
+   *
+   * Sans ce chiffre, exclure un champ du calcul se fait à l'aveugle : rien ne
+   * distingue celui que personne ne renseigne — et qui bloque donc tout le
+   * monde — de celui qui ne coûte rien à exiger.
+   */
+  async tauxParChamp(pays = 'benin') {
+    const colonnes = CHAMPS_PROFIL
+      .map((c, i) => `SUM(${ProfilCompletionService.sqlRempli(c.champ)})::int AS c${i}`)
+      .join(', ');
+    const [ligne] = await this.dataSource.query(
+      `SELECT COUNT(*)::int AS total, ${colonnes}
+         FROM utilisateurs WHERE pays = $1 AND est_desactive = false`,
+      [pays],
+    );
+    const total = Number(ligne.total ?? 0);
+    return CHAMPS_PROFIL.map((c, i) => {
+      const remplis = Number(ligne[`c${i}`] ?? 0);
+      return {
+        ...c,
+        remplis,
+        part: total ? Math.round((remplis * 1000) / total) / 10 : 0,
+      };
+    });
   }
 
   /**
@@ -163,15 +212,7 @@ export class ProfilCompletionService {
     const { champsExclus } = await this.reglage(pays);
     const champs = this.champsRetenus(champsExclus);
 
-    const expression = champs
-      .map((c) => {
-        if (c.champ === 'photo') return `(CASE WHEN COALESCE(NULLIF(TRIM(profil_photo_path), ''), NULLIF(TRIM(photo), '')) IS NOT NULL THEN 1 ELSE 0 END)`;
-        if (c.champ === 'email_verifie') return `(CASE WHEN verifier THEN 1 ELSE 0 END)`;
-        if (['departement_id', 'ville_id', 'etablissement_id', 'filiere_id', 'niveau_etude_id', 'type_profil_id', 'sexe', 'age_group'].includes(c.champ))
-          return `(CASE WHEN ${c.champ} IS NOT NULL THEN 1 ELSE 0 END)`;
-        return `(CASE WHEN NULLIF(TRIM(${c.champ}), '') IS NOT NULL THEN 1 ELSE 0 END)`;
-      })
-      .join(' + ');
+    const expression = champs.map((c) => ProfilCompletionService.sqlRempli(c.champ)).join(' + ');
 
     const lignes = await this.dataSource.query(
       `WITH score AS (

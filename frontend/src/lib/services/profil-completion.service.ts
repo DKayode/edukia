@@ -3,6 +3,10 @@ import { api } from '../api';
 export interface ChampProfil {
   champ: string;
   libelle: string;
+  /** Combien de comptes actifs ont réellement rempli ce champ. */
+  remplis: number;
+  /** Le même, en pourcentage des comptes actifs. */
+  part: number;
 }
 
 export interface ReglageProfil {
