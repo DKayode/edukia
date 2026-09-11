@@ -132,6 +132,61 @@ describe('CodeValidationService', () => {
     });
   });
 
+  describe('validation sans compte', () => {
+    // La route est ouverte : un code se saisit souvent avant l'inscription.
+
+    it('valide un code et calcule la remise pour un visiteur anonyme', async () => {
+      brancher(codeBase());
+      const r = await service.valider('rentree2026', undefined, { prix: 2000 });
+      expect(r.valide).toBe(true);
+      expect(r.effets!.remise).toMatchObject({ montant_remise: 400, prix_final: 1600 });
+    });
+
+    it('applique les refus qui ne dépendent pas du compte', async () => {
+      for (const [cas, motif] of [
+        [{ est_actif: false }, 'INACTIF'],
+        [{ date_fin: new Date(Date.now() - 86400000) }, 'EXPIRE'],
+        [{ plans_eligibles: [7, 8] }, 'PLAN_NON_ELIGIBLE'],
+      ] as const) {
+        brancher(codeBase(cas as any));
+        expect(await service.valider('X', undefined, { planId: 1 })).toMatchObject({ motif });
+      }
+    });
+
+    it('applique le quota TOTAL, qui ne dépend d’aucun compte', async () => {
+      brancher(codeBase({ usage_max_total: 2 }));
+      journal = [
+        { code_id: 1, utilisateur_id: 55 },
+        { code_id: 1, utilisateur_id: 56 },
+      ];
+      expect(await service.valider('X', undefined)).toMatchObject({ motif: 'QUOTA_TOTAL_ATTEINT' });
+    });
+
+    it('ne peut pas détecter l’usage de son propre code', async () => {
+      // Indécidable sans savoir qui appelle. La souscription, elle, exige un
+      // compte et refusera.
+      brancher(codeBase({ proprietaire_id: 10 }));
+      expect((await service.valider('X', undefined)).valide).toBe(true);
+      brancher(codeBase({ proprietaire_id: 10 }));
+      expect(await service.valider('X', 10)).toMatchObject({ motif: 'AUTO_UTILISATION' });
+    });
+
+    it('ne peut pas détecter un code déjà consommé par ce compte', async () => {
+      brancher(codeBase({ usage_max_par_utilisateur: 1 }));
+      journal = [{ code_id: 1, utilisateur_id: 10 }];
+      expect((await service.valider('X', undefined)).valide).toBe(true);
+      brancher(codeBase({ usage_max_par_utilisateur: 1 }));
+      journal = [{ code_id: 1, utilisateur_id: 10 }];
+      expect(await service.valider('X', 10)).toMatchObject({ motif: 'DEJA_UTILISE' });
+    });
+
+    it('verse la commission au propriétaire, qui n’est pas l’appelant anonyme', async () => {
+      brancher(codeBase({ proprietaire_id: 42, effets: [reduction(), commission()] }));
+      const r = await service.valider('X', undefined, { prix: 2000 });
+      expect(r.effets?.commission_pour).toBe(42);
+    });
+  });
+
   describe('cohérence des combinaisons', () => {
     it('refuse abonnement offert + réduction', () => {
       // Rien n'est encaissé : la remise ne s'applique à rien.
