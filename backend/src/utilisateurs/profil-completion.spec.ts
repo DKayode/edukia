@@ -33,7 +33,7 @@ describe('ProfilCompletionService', () => {
   beforeEach(() => {
     utilisateurs = { findOne: jest.fn().mockResolvedValue(utilisateurNeuf()) };
     configurations = { findOne: jest.fn().mockResolvedValue(null), save: jest.fn(async (c) => c) };
-    dataSource = { query: jest.fn().mockResolvedValue([]) };
+    dataSource = { query: jest.fn().mockResolvedValue([{ total: 0 }]) };
     service = new ProfilCompletionService(utilisateurs, configurations, dataSource);
   });
 
@@ -52,6 +52,43 @@ describe('ProfilCompletionService', () => {
 
     it('en compte toujours seize', () => {
       expect(CHAMPS_PROFIL).toHaveLength(16);
+    });
+  });
+
+  describe('taux de remplissage par champ', () => {
+    it('rapporte, pour chaque champ, combien de comptes l’ont rempli', async () => {
+      const colonnes: any = { total: 200 };
+      CHAMPS_PROFIL.forEach((_, i) => (colonnes[`c${i}`] = i === 0 ? 200 : 10));
+      dataSource.query.mockResolvedValue([colonnes]);
+
+      const taux = await service.tauxParChamp('benin');
+      expect(taux[0]).toMatchObject({ champ: 'nom', remplis: 200, part: 100 });
+      expect(taux[1]).toMatchObject({ remplis: 10, part: 5 });
+    });
+
+    it('ne divise pas par zéro sur une base vide', async () => {
+      dataSource.query.mockResolvedValue([{ total: 0 }]);
+      const taux = await service.tauxParChamp('benin');
+      expect(taux.every((t) => t.part === 0)).toBe(true);
+    });
+
+    it('interroge la base une seule fois pour les seize champs', async () => {
+      const colonnes: any = { total: 10 };
+      CHAMPS_PROFIL.forEach((_, i) => (colonnes[`c${i}`] = 1));
+      dataSource.query.mockResolvedValue([colonnes]);
+      await service.tauxParChamp('benin');
+      // Seize requêtes pour seize champs seraient seize allers-retours inutiles.
+      expect(dataSource.query).toHaveBeenCalledTimes(1);
+    });
+
+    it('accompagne les champs proposés au réglage', async () => {
+      const colonnes: any = { total: 100 };
+      CHAMPS_PROFIL.forEach((_, i) => (colonnes[`c${i}`] = 50));
+      dataSource.query.mockResolvedValue([colonnes]);
+      config();
+      const r = await service.reglages('benin');
+      // Sans ce chiffre, exclure un champ se ferait à l'aveugle.
+      expect(r.champs_disponibles[0]).toMatchObject({ part: 50, remplis: 50 });
     });
 
     it('donne un libellé lisible à chaque champ', () => {

@@ -228,22 +228,44 @@ function Formulaire({
               <Label>Champs comptés dans le calcul</Label>
               <p className="text-xs text-muted-foreground">
                 Décocher un champ le retire du numérateur comme du dénominateur : il cesse d’être
-                exigé sans pénaliser personne.
+                exigé sans pénaliser personne. Le taux indiqué est la part des comptes actifs qui
+                l’ont réellement rempli — un champ à quelques pour cent bloque presque tout le
+                monde à lui seul, quel que soit le seuil.
               </p>
             </div>
             <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-              {reglage.champs_disponibles.map((c) => (
-                <label
-                  key={c.champ}
-                  className="flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm"
-                >
-                  <Checkbox
-                    checked={!exclus.includes(c.champ)}
-                    onCheckedChange={(v) => basculer(c.champ, v === true)}
-                  />
-                  <span className="text-foreground">{c.libelle}</span>
-                </label>
-              ))}
+              {[...reglage.champs_disponibles]
+                .sort((a, b) => b.part - a.part)
+                .map((c) => {
+                  const coche = !exclus.includes(c.champ);
+                  // Sous 5 %, exiger le champ revient à refuser presque tout le
+                  // monde : c'est l'information qui manquait pour décider.
+                  const bloquant = c.part < 5;
+                  return (
+                    <label
+                      key={c.champ}
+                      className={`flex cursor-pointer items-start gap-2 rounded-md border px-3 py-2 text-sm ${
+                        coche && bloquant ? "border-amber-500/50 bg-amber-500/5" : ""
+                      }`}
+                    >
+                      <Checkbox
+                        className="mt-0.5"
+                        checked={coche}
+                        onCheckedChange={(v) => basculer(c.champ, v === true)}
+                      />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-foreground">{c.libelle}</span>
+                        <span
+                          className={`block text-xs tabular-nums ${
+                            bloquant ? "font-medium text-amber-600" : "text-muted-foreground"
+                          }`}
+                        >
+                          {c.part} % renseigné · {nombre(c.remplis)} comptes
+                        </span>
+                      </span>
+                    </label>
+                  );
+                })}
             </div>
           </div>
 
