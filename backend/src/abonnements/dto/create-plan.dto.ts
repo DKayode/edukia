@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsBoolean, IsInt, IsNotEmpty, IsNumber, IsOptional, IsString, Length, Matches, Min } from 'class-validator';
+import { IsArray, IsBoolean, IsInt, IsNotEmpty, IsNumber, IsOptional, IsString, Length, Matches, MaxLength, Min } from 'class-validator';
 
 export class CreatePlanDto {
   @ApiProperty({ example: 'MENSUEL' })
@@ -37,6 +37,20 @@ export class CreatePlanDto {
   duree_jours: number;
 
   @ApiPropertyOptional({ default: false, description: 'Un plan inactif reste invisible du catalogue mobile.' })
+  @ApiPropertyOptional({
+    type: [String],
+    example: ['Épreuves en illimité', 'Concours : téléchargement des sujets'],
+    description:
+      'Ce que l’abonnement débloque, une ligne par avantage. N’y écrivez pas les plafonds ' +
+      'gratuits : ils se règlent ailleurs, et la mention deviendrait fausse à la première ' +
+      'modification.',
+  })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  @MaxLength(200, { each: true, message: 'Un avantage ne doit pas dépasser 200 caractères' })
+  avantages?: string[];
+
   @IsOptional()
   @IsBoolean()
   est_actif?: boolean;

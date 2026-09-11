@@ -10,6 +10,8 @@ export interface PlanAbonnement {
   code: string;
   libelle: string;
   description?: string | null;
+  /** Ce que l'abonnement débloque, une ligne par avantage. */
+  avantages?: string[] | null;
   prix: number;
   devise: string;
   duree_jours: number;
@@ -23,6 +25,7 @@ export interface PlanPayload {
   code: string;
   libelle: string;
   description?: string;
+  avantages?: string[];
   prix: number;
   devise?: string;
   duree_jours: number;
