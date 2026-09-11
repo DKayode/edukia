@@ -33,6 +33,10 @@ const RANG_STATUT: Record<StatutPaiement, number> = {
   [StatutPaiement.REUSSI]: 3,
   [StatutPaiement.REMBOURSE]: 4,
 };
+const PRESTATAIRES_PUBLICS: Partial<Record<PrestatairePaiement, string>> = {
+  [PrestatairePaiement.KKIAPAY]: 'KKiaPay',
+  [PrestatairePaiement.FEDAPAY]: 'FedaPay',
+};
 
 @Injectable()
 export class PaiementsService {
@@ -50,6 +54,30 @@ export class PaiementsService {
     private readonly credentials: PaiementCredentialsService,
     private readonly dataSource: DataSource,
   ) {}
+
+  async prestatairesDisponibles(pays: string) {
+    const configurations = await this.configurations.find({
+      where: { pays, est_actif: true },
+      order: { prestataire: 'ASC' },
+    });
+
+    return {
+      pays,
+      prestataires: configurations.flatMap((configuration) => {
+        const libelle = PRESTATAIRES_PUBLICS[configuration.prestataire];
+        if (!libelle) return [];
+        return [{
+          pays: configuration.pays,
+          prestataire: configuration.prestataire,
+          libelle,
+          mode: configuration.mode,
+          devise: configuration.devise,
+          montant_min: configuration.montant_min,
+          montant_max: configuration.montant_max,
+        }];
+      }),
+    };
+  }
 
   async initier(pays: string, utilisateurId: number, dto: InitierPaiementDto) {
     const abonnement = await this.abonnements.findOne({ where: { uuid: dto.abonnement_uuid, utilisateur_id: utilisateurId, pays } });
