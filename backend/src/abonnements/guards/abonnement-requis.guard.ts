@@ -35,7 +35,7 @@ export class AbonnementRequisGuard implements CanActivate {
     const decision = await this.entitlement.check(utilisateurId, feature, request.user?.role);
     if (decision.allowed) return true;
 
-    if (!this.entitlement.verrouActif) {
+    if (!this.entitlement.verrouActif(request.country)) {
       this.logger.warn(
         `[verrou éteint] accès qui aurait été refusé — feature=${feature} ` +
           `utilisateur=${utilisateurId ?? 'anonyme'} route=${request.method} ${request.url}`,

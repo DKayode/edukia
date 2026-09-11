@@ -45,7 +45,7 @@ export class EpreuvesController {
     // Profil incomplet : refuser SANS consommer. Décompter une unité à
     // quelqu'un qui n'a rien pu lire lui ferait perdre son quota pour rien.
     if (decision.reason === 'PROFIL_INCOMPLET') {
-      if (!this.entitlement.verrouActif) {
+      if (!this.entitlement.verrouActif(pays)) {
         this.logger.warn(
           `[verrou éteint] profil incomplet — utilisateur=${utilisateurId} epreuve=${epreuveId} ` +
             `(${decision.quota?.used}/${decision.quota?.limit} %)`,
@@ -65,7 +65,7 @@ export class EpreuvesController {
     );
     if (resultat.allowed) return;
 
-    if (!this.entitlement.verrouActif) {
+    if (!this.entitlement.verrouActif(pays)) {
       this.logger.warn(
         `[verrou éteint] quota épuisé — feature=EPREUVE_VIEW utilisateur=${utilisateurId} ` +
           `epreuve=${epreuveId} (${resultat.used}/${resultat.limit})`,

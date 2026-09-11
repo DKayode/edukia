@@ -17,6 +17,8 @@ import { QuotaService } from './quota.service';
 import { UpdateCommissionDto } from './dto/update-commission.dto';
 import { ClassementCommissionsDto } from './dto/classement-commissions.dto';
 import { UpdateQuotaDto } from './dto/update-quota.dto';
+import { VerrouService } from './verrou.service';
+import { UpdateVerrouDto } from './dto/update-verrou.dto';
 
 @ApiTags('abonnements-admin')
 @ApiBearerAuth()
@@ -29,7 +31,37 @@ export class AbonnementsAdminController {
     private readonly plansService: PlansService,
     private readonly quotas: QuotaService,
     private readonly parrainage: ParrainageService,
+    private readonly verrou: VerrouService,
   ) {}
+
+  // ── Verrou d'accès ───────────────────────────────────────────────────────
+
+  @Get('verrou')
+  @ApiOperation({
+    summary: 'État du verrou d’accès',
+    description:
+      'Éteint, les refus sont calculés et journalisés mais la ressource est servie. ' +
+      'Allumé, ils s’appliquent. `origine` dit si la valeur vient d’une bascule ' +
+      'enregistrée ou, à défaut, de la configuration de déploiement.',
+  })
+  etatVerrou(@CurrentCountry() pays: string) {
+    return this.verrou.etat(pays);
+  }
+
+  @Put('verrou')
+  @ApiOperation({
+    summary: 'Allumer ou éteindre le verrou',
+    description:
+      'Prend effet immédiatement, sans déploiement. C’est le seul interrupteur qui refuse ' +
+      'réellement un accès : l’allumer coupe les ressources au-delà des quotas gratuits.',
+  })
+  basculerVerrou(
+    @CurrentCountry() pays: string,
+    @Body() dto: UpdateVerrouDto,
+    @Request() req,
+  ) {
+    return this.verrou.basculer(pays, dto.verrou_actif, req.user?.utilisateurId);
+  }
 
   // ── Commission de parrainage ─────────────────────────────────────────────
 

@@ -14,6 +14,7 @@ describe('EntitlementService', () => {
   let config: any;
   let quotas: any;
   let profils: any;
+  let verrou: any;
   let service: EntitlementService;
 
   beforeEach(() => {
@@ -33,7 +34,8 @@ describe('EntitlementService', () => {
     profils = {
       estConforme: jest.fn().mockResolvedValue({ conforme: true, pourcentage: 100, seuil: 95, actif: false }),
     };
-    service = new EntitlementService(abonnements, utilisateurs, config, quotas, profils);
+    verrou = { estActif: jest.fn().mockReturnValue(false) };
+    service = new EntitlementService(abonnements, utilisateurs, config, quotas, profils, verrou);
   });
 
   it('refuse sans abonnement actif', async () => {
@@ -74,15 +76,24 @@ describe('EntitlementService', () => {
     expect(where.date_fin).toBeDefined();
   });
 
-  describe('interrupteur ABONNEMENTS_VERROU_ACTIF', () => {
-    it.each([
-      [undefined, false],
-      ['false', false],
-      ['true', true],
-      ['TRUE', true],
-    ])('valeur %s → verrouActif = %s', (valeur, attendu) => {
-      config.get.mockReturnValue(valeur);
-      expect(service.verrouActif).toBe(attendu);
+  describe('interrupteur du verrou', () => {
+    // La lecture de la variable d'environnement a migré vers VerrouService,
+    // qui la teste pour son compte. Ce qui se vérifie ici est la délégation —
+    // et surtout que le pays est transmis : servir le réglage du Bénin au
+    // Sénégal reviendrait à ignorer une bascule.
+    it('délègue au service du verrou, pays compris', () => {
+      verrou.estActif.mockReturnValue(true);
+      expect(service.verrouActif('senegal')).toBe(true);
+      expect(verrou.estActif).toHaveBeenCalledWith('senegal');
+    });
+
+    it('retombe sur le Bénin quand aucun pays n’est donné', () => {
+      service.verrouActif();
+      expect(verrou.estActif).toHaveBeenCalledWith('benin');
+    });
+
+    it('reste synchrone — le guard l’appelle à chaque téléchargement', () => {
+      expect(typeof service.verrouActif('benin')).toBe('boolean');
     });
   });
 });
@@ -105,7 +116,7 @@ describe('AbonnementRequisGuard', () => {
     reflector = { getAllAndOverride: jest.fn().mockReturnValue(Feature.CONCOURS_DOWNLOAD) };
     entitlement = {
       check: jest.fn().mockResolvedValue({ allowed: false, reason: 'SUBSCRIPTION_REQUIRED' }),
-      verrouActif: true,
+      verrouActif: jest.fn().mockReturnValue(true),
     };
     guard = new AbonnementRequisGuard(reflector, entitlement);
   });
@@ -137,7 +148,7 @@ describe('AbonnementRequisGuard', () => {
   });
 
   it('laisse passer quand le verrou est éteint, sans supprimer le refus du journal', async () => {
-    entitlement.verrouActif = false;
+    entitlement.verrouActif.mockReturnValue(false);
     const warn = jest.spyOn((guard as any).logger, 'warn').mockImplementation(() => {});
 
     expect(await guard.canActivate(contexte(42))).toBe(true);

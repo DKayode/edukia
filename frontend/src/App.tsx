@@ -53,6 +53,7 @@ import ConfigurationWallet from "./pages/ConfigurationWallet";
 import Abonnements from "./pages/Abonnements";
 import PlansAbonnement from "./pages/PlansAbonnement";
 import QuotasGratuits from "./pages/QuotasGratuits";
+import VerrouAcces from "./pages/VerrouAcces";
 import CompletionProfil from "./pages/CompletionProfil";
 import CommissionParrainage from "./pages/CommissionParrainage";
 import ClassementCommissions from "./pages/ClassementCommissions";
@@ -136,6 +137,7 @@ const App = () => (
                       <Route path="/admin/abonnements" element={<Abonnements />} />
                       <Route path="/admin/abonnements/plans" element={<PlansAbonnement />} />
                       <Route path="/admin/abonnements/quotas" element={<QuotasGratuits />} />
+                      <Route path="/admin/abonnements/verrou" element={<VerrouAcces />} />
                       <Route path="/admin/abonnements/completion-profil" element={<CompletionProfil />} />
                       <Route path="/admin/abonnements/commission" element={<CommissionParrainage />} />
                       <Route path="/admin/abonnements/classement-commissions" element={<ClassementCommissions />} />

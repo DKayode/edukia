@@ -235,7 +235,7 @@ export class FilesController {
         const decision = await this.entitlement.check(utilisateurId, feature, req?.user?.role, pays);
         // Profil incomplet : refuser sans consommer, comme sur les épreuves.
         if (decision.reason === 'PROFIL_INCOMPLET') {
-            if (!this.entitlement.verrouActif) {
+            if (!this.entitlement.verrouActif(pays)) {
                 this.logger.warn(
                     `[verrou éteint] profil incomplet — utilisateur=${utilisateurId} ${entity}/${uuid} ` +
                     `(${decision.quota?.used}/${decision.quota?.limit} %)`,
@@ -261,7 +261,7 @@ export class FilesController {
             return;
         }
 
-        if (!this.entitlement.verrouActif) {
+        if (!this.entitlement.verrouActif(pays)) {
             this.logger.warn(
                 `[verrou éteint] quota épuisé — feature=${feature} utilisateur=${utilisateurId} ` +
                 `${entity}/${resourceId} (${resultat.used}/${resultat.limit})`,

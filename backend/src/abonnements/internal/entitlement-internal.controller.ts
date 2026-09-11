@@ -2,6 +2,7 @@ import { CanActivate, Controller, ExecutionContext, Get, Injectable, Query, Unau
 import { ConfigService } from '@nestjs/config';
 import { ApiHeader, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { EntitlementService, Feature } from '../entitlement.service';
+import { CurrentCountry } from '../../common/decorators/current-country.decorator';
 
 /**
  * Clé propre au module, distincte de `PAYMENT_INTERNAL_API_KEY` : deux
@@ -41,13 +42,17 @@ export class EntitlementInternalController {
   @ApiOperation({ summary: 'Droit d’un utilisateur sur une fonctionnalité, pour un appel de service à service' })
   @ApiQuery({ name: 'userId', type: Number })
   @ApiQuery({ name: 'feature', enum: Feature })
-  async check(@Query('userId') userId: string, @Query('feature') feature: Feature) {
+  async check(
+    @CurrentCountry() pays: string,
+    @Query('userId') userId: string,
+    @Query('feature') feature: Feature,
+  ) {
     const decision = await this.entitlement.check(Number(userId), feature);
     return {
       allowed: decision.allowed,
       reason: decision.reason,
       ...(decision.quota ? { quota: decision.quota } : {}),
-      verrou_actif: this.entitlement.verrouActif,
+      verrou_actif: this.entitlement.verrouActif(pays),
     };
   }
 }

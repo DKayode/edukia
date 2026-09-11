@@ -29,6 +29,12 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       # Node
       NODE_ENV: production
+      # Verrou des abonnements. Éteint, les refus (quota épuisé, abonnement
+      # requis, profil incomplet) sont journalisés mais la ressource est servie
+      # quand même — c'est la phase d'observation. Allumé, ils s'appliquent.
+      # Comme ce service ne déclare pas env_file, l'oublier ici suffirait à
+      # rendre la variable sans effet malgré sa présence dans .env.
+      ABONNEMENTS_VERROU_ACTIF: ${ABONNEMENTS_VERROU_ACTIF:-false}
       # Email
       SMTP_HOST: ${SMTP_HOST}
       SMTP_PORT: ${SMTP_PORT}

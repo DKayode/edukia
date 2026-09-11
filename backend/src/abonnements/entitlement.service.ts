@@ -5,6 +5,7 @@ import { LessThan, MoreThan, Repository } from 'typeorm';
 import { RoleType, Utilisateur } from '../utilisateurs/entities/utilisateur.entity';
 import { Abonnement, StatutAbonnement } from './entities/abonnement.entity';
 import { FeatureQuota } from './entities/quota-consommation.entity';
+import { VerrouService } from './verrou.service';
 import { QuotaService } from './quota.service';
 import { ProfilCompletionService } from '../utilisateurs/profil-completion.service';
 
@@ -50,6 +51,7 @@ export class EntitlementService {
     private readonly config: ConfigService,
     private readonly quotas: QuotaService,
     private readonly profils: ProfilCompletionService,
+    private readonly verrou: VerrouService,
   ) {}
 
   /**
@@ -78,9 +80,14 @@ export class EntitlementService {
    * Interrupteur de mise en service. À `false` — le défaut — le guard laisse
    * passer et journalise ce qu'il aurait refusé : on mesure l'impact avant de
    * couper un accès qui existe aujourd'hui.
+   *
+   * Devenu une méthode plutôt qu'un accesseur : le verrou est réglable par
+   * pays depuis le back-office, et servir la valeur du Bénin au Sénégal
+   * reviendrait à ignorer le réglage. La lecture reste synchrone — voir
+   * VerrouService, ce chemin est celui de chaque téléchargement.
    */
-  get verrouActif(): boolean {
-    return String(this.config.get('ABONNEMENTS_VERROU_ACTIF') ?? 'false').toLowerCase() === 'true';
+  verrouActif(pays = 'benin'): boolean {
+    return this.verrou.estActif(pays);
   }
 
   /** Abonnement ACTIF dont la date de fin n'est pas passée. */
