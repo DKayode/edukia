@@ -59,7 +59,7 @@ export class AbonnementsController {
   @ApiResponse({ status: 200, description: 'Une décision par fonctionnalité + l’état du verrou' })
   async mesDroits(@CurrentCountry() pays: string, @Request() req) {
     return {
-      verrou_actif: this.entitlement.verrouActif,
+      verrou_actif: this.entitlement.verrouActif(pays),
       droits: await this.entitlement.mesDroits(req.user?.utilisateurId, req.user?.role, pays),
     };
   }
@@ -102,7 +102,7 @@ export class AbonnementsController {
     const decision = await this.entitlement.check(utilisateurId, Feature.KETSIA_AI, req.user?.role, pays);
     // Profil incomplet : refuser sans consommer le lancement gratuit.
     if (decision.reason === 'PROFIL_INCOMPLET') {
-      if (!this.entitlement.verrouActif) {
+      if (!this.entitlement.verrouActif(pays)) {
         return { allowed: true, reason: 'PROFIL_INCOMPLET', quota: decision.quota, verrou_actif: false };
       }
       throw new ProfilIncompletException(Feature.KETSIA_AI, decision);
@@ -119,7 +119,7 @@ export class AbonnementsController {
     if (resultat.allowed) {
       return { allowed: true, reason: 'FREE_QUOTA', quota: { used: resultat.used, limit: resultat.limit } };
     }
-    if (!this.entitlement.verrouActif) {
+    if (!this.entitlement.verrouActif(pays)) {
       return { allowed: true, reason: 'FREE_QUOTA', quota: { used: resultat.used, limit: resultat.limit }, verrou_actif: false };
     }
     throw new QuotaDepasseException(Feature.KETSIA_AI, resultat);

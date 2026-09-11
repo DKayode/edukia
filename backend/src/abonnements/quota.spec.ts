@@ -222,7 +222,7 @@ describe('QuotaService', () => {
 });
 
 describe('EntitlementService — quotas', () => {
-  let abonnements: any, utilisateurs: any, config: any, quotas: QuotaService, profils: any, service: EntitlementService;
+  let abonnements: any, utilisateurs: any, config: any, quotas: QuotaService, profils: any, verrou: any, service: EntitlementService;
 
   beforeEach(() => {
     abonnements = { findOne: jest.fn().mockResolvedValue(null), find: jest.fn().mockResolvedValue([]) };
@@ -230,7 +230,8 @@ describe('EntitlementService — quotas', () => {
     config = { get: jest.fn().mockReturnValue('true') };
     quotas = new QuotaService(depotEnMemoire() as any, depotConfig() as any);
     profils = { estConforme: jest.fn().mockResolvedValue({ conforme: true, pourcentage: 100, seuil: 95, actif: false }) };
-    service = new EntitlementService(abonnements, utilisateurs, config, quotas, profils);
+    verrou = { estActif: jest.fn().mockReturnValue(false) };
+    service = new EntitlementService(abonnements, utilisateurs, config, quotas, profils, verrou);
   });
 
   it('autorise une épreuve sur le quota gratuit', async () => {
@@ -270,7 +271,8 @@ describe('EntitlementService — quotas', () => {
       depotConfig([{ feature: 'RESOURCE_VIEW', est_actif: false }]) as any,
     );
     profils = { estConforme: jest.fn().mockResolvedValue({ conforme: true, pourcentage: 100, seuil: 95, actif: false }) };
-    service = new EntitlementService(abonnements, utilisateurs, config, quotas, profils);
+    verrou = { estActif: jest.fn().mockReturnValue(false) };
+    service = new EntitlementService(abonnements, utilisateurs, config, quotas, profils, verrou);
     const droits = await service.mesDroits(1, RoleType.ETUDIANT);
     expect(droits[Feature.EPREUVE_VIEW]).toMatchObject({ allowed: true, reason: 'FREE_QUOTA' });
     expect(droits[Feature.EPREUVE_VIEW].quota).toBeUndefined();

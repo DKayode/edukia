@@ -66,6 +66,15 @@ export interface AbonnementEvenement {
 export type FeatureQuota = 'RESOURCE_VIEW' | 'KETSIA_AI';
 export type PeriodeReset = 'MENSUEL' | 'AVIE';
 
+export interface EtatVerrou {
+  verrou_actif: boolean;
+  /** `base` : une bascule enregistrée fait autorité. `environnement` : valeur de déploiement. */
+  origine: 'base' | 'environnement';
+  valeur_environnement: boolean;
+  date_modification: string | null;
+  modifie_par: number | null;
+}
+
 export interface ConfigurationQuota {
   id: number;
   uuid: string;
@@ -153,6 +162,14 @@ export const abonnementsService = {
   },
 
   // ── Quotas gratuits ──────────────────────────────────────────────────────
+  async getVerrou(): Promise<EtatVerrou> {
+    return api.get<EtatVerrou>('/admin/abonnements/verrou');
+  },
+
+  async setVerrou(verrou_actif: boolean): Promise<EtatVerrou> {
+    return api.put<EtatVerrou>('/admin/abonnements/verrou', { verrou_actif });
+  },
+
   async getQuotas(): Promise<ConfigurationQuota[]> {
     return api.get<ConfigurationQuota[]>('/admin/abonnements/quotas');
   },

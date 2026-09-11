@@ -16,6 +16,8 @@ import { AbonnementRequisGuard } from './guards/abonnement-requis.guard';
 import { ParrainageService } from './parrainage.service';
 import { PlansService } from './plans.service';
 import { QuotaService } from './quota.service';
+import { ConfigurationAbonnement } from './entities/configuration-abonnement.entity';
+import { VerrouService } from './verrou.service';
 
 /**
  * Socle des abonnements.
@@ -25,9 +27,9 @@ import { QuotaService } from './quota.service';
  * nationaux en #245, stats IA en #249) doivent connaître.
  */
 @Module({
-  imports: [forwardRef(() => UtilisateursModule), TypeOrmModule.forFeature([PlanAbonnement, Abonnement, AbonnementEvenement, QuotaConsommation, ConfigurationQuota, Utilisateur])],
+  imports: [forwardRef(() => UtilisateursModule), TypeOrmModule.forFeature([ConfigurationAbonnement, PlanAbonnement, Abonnement, AbonnementEvenement, QuotaConsommation, ConfigurationQuota, Utilisateur])],
   controllers: [AbonnementsController, AbonnementsAdminController, EntitlementInternalController],
-  providers: [AbonnementsService, PlansService, EntitlementService, QuotaService, ParrainageService, AbonnementRequisGuard],
-  exports: [EntitlementService, QuotaService, ParrainageService, PlansService, AbonnementRequisGuard, AbonnementsService],
+  providers: [VerrouService, AbonnementsService, PlansService, EntitlementService, QuotaService, ParrainageService, AbonnementRequisGuard],
+  exports: [VerrouService, EntitlementService, QuotaService, ParrainageService, PlansService, AbonnementRequisGuard, AbonnementsService],
 })
 export class AbonnementsModule {}
