@@ -27,6 +27,12 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         throw new UnauthorizedException('Token blacklisté/révoqué');
       }
     }
+    // `abonnement_actif` n'est VOLONTAIREMENT pas relayé dans `req.user`.
+    // Le claim est une photographie vieille de 24 h au plus ; il est posé pour
+    // les services tiers qui n'ont pas accès à la base. Côté Edukia, les gardes
+    // interrogent `abonnements` à chaque appel, et l'exposer ici ne servirait
+    // qu'à inviter quelqu'un à s'en contenter — un abonnement résilié resterait
+    // alors valable jusqu'à l'expiration du jeton.
     return {
       utilisateurId: payload.sub,
       email: payload.email,
