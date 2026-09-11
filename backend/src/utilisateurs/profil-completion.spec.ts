@@ -7,6 +7,7 @@ const utilisateurNeuf = (surcharges: any = {}) => ({
   pseudo: null, telephone: null, photo: null, profil_photo_path: '',
   age_group: null, zone_residence: null, departement_id: null, ville_id: null,
   etablissement_id: null, filiere_id: null, niveau_etude_id: null, type_profil_id: null,
+  situation_handicap: null,
   verifier: false,
   ...surcharges,
 });
@@ -17,6 +18,7 @@ const utilisateurComplet = () => ({
   pseudo: 'jane', telephone: '+22901000000', photo: null, profil_photo_path: '/x/y/profil',
   age_group: '18 - 25', zone_residence: 'urbaine', departement_id: 'd-1', ville_id: 'v-1',
   etablissement_id: 1, filiere_id: 2, niveau_etude_id: 3, type_profil_id: 4,
+  situation_handicap: false,
   verifier: true,
 });
 
@@ -36,10 +38,20 @@ describe('ProfilCompletionService', () => {
   });
 
   describe('champs comptés', () => {
-    it('exclut situation_handicap', () => {
-      // Sa colonne porte DEFAULT false : elle n'est jamais vide, et la compter
-      // donnerait des points gratuits à tout le monde.
-      expect(CHAMPS_PROFIL.map((c) => c.champ)).not.toContain('situation_handicap');
+    it('compte situation_handicap', () => {
+      expect(CHAMPS_PROFIL.map((c) => c.champ)).toContain('situation_handicap');
+    });
+
+    it('ne compte pas l’adresse email à part de sa vérification', () => {
+      // Sans adresse il n'y a pas de compte : la compter créditerait tout le
+      // monde d'un point acquis d'avance. Seule la vérification distingue.
+      const champs = CHAMPS_PROFIL.map((c) => c.champ);
+      expect(champs).not.toContain('email');
+      expect(champs).toContain('email_verifie');
+    });
+
+    it('en compte toujours seize', () => {
+      expect(CHAMPS_PROFIL).toHaveLength(16);
     });
 
     it('donne un libellé lisible à chaque champ', () => {
@@ -50,10 +62,11 @@ describe('ProfilCompletionService', () => {
   });
 
   describe('calcul', () => {
-    it('compte 25 % pour un compte fraîchement inscrit', async () => {
+    it('compte 19 % pour un compte fraîchement inscrit', async () => {
       config();
       const c = await service.pourUtilisateur(1);
-      expect(c).toMatchObject({ champs_total: 16, champs_remplis: 4, pourcentage: 25 });
+      // nom, prénom, sexe — l'adresse email ne compte plus pour elle-même.
+      expect(c).toMatchObject({ champs_total: 16, champs_remplis: 3, pourcentage: 19 });
     });
 
     it('compte 100 % pour un profil entièrement rempli', async () => {
@@ -79,8 +92,31 @@ describe('ProfilCompletionService', () => {
     it('liste les champs manquants avec leur libellé', async () => {
       config();
       const c = await service.pourUtilisateur(1);
-      expect(c.manquants).toHaveLength(12);
+      expect(c.manquants).toHaveLength(13);
       expect(c.manquants).toContainEqual({ champ: 'telephone', libelle: 'Numéro de téléphone' });
+    });
+
+    it('compte un « non » au handicap comme une réponse', async () => {
+      config();
+      utilisateurs.findOne.mockResolvedValue(utilisateurNeuf({ situation_handicap: false }));
+      const c = await service.pourUtilisateur(1);
+      expect(c.manquants.map((m) => m.champ)).not.toContain('situation_handicap');
+      expect(c.champs_remplis).toBe(4);
+    });
+
+    it('laisse le handicap vide tant que la question n’a pas été posée', async () => {
+      // NULL depuis la migration 088 : sans elle, DEFAULT false remplissait le
+      // champ à l'inscription et personne n'avait jamais rien à répondre.
+      config();
+      const c = await service.pourUtilisateur(1);
+      expect(c.manquants.map((m) => m.champ)).toContain('situation_handicap');
+    });
+
+    it('n’accorde plus l’adresse email comme un point acquis', async () => {
+      config();
+      const c = await service.pourUtilisateur(1);
+      expect(c.manquants.map((m) => m.champ)).not.toContain('email');
+      expect(c.manquants.map((m) => m.champ)).toContain('email_verifie');
     });
 
     it('retire les champs exclus du calcul ET du dénominateur', async () => {
@@ -95,7 +131,7 @@ describe('ProfilCompletionService', () => {
     it('déclare tout le monde conforme tant que le seuil est inactif', async () => {
       config({ est_actif: false });
       const c = await service.pourUtilisateur(1);
-      expect(c.pourcentage).toBe(25);
+      expect(c.pourcentage).toBe(19);
       // Le client n'a pas à connaître la règle d'activation pour choisir son écran.
       expect(c.conforme).toBe(true);
     });

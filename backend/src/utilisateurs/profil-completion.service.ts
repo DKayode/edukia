@@ -15,7 +15,6 @@ import { Utilisateur } from './entities/utilisateur.entity';
 export const CHAMPS_PROFIL: { champ: string; libelle: string }[] = [
   { champ: 'nom', libelle: 'Nom' },
   { champ: 'prenom', libelle: 'Prénom' },
-  { champ: 'email', libelle: 'Adresse email' },
   { champ: 'sexe', libelle: 'Sexe' },
   { champ: 'pseudo', libelle: 'Pseudo' },
   { champ: 'telephone', libelle: 'Numéro de téléphone' },
@@ -28,7 +27,11 @@ export const CHAMPS_PROFIL: { champ: string; libelle: string }[] = [
   { champ: 'filiere_id', libelle: 'Filière' },
   { champ: 'niveau_etude_id', libelle: 'Niveau d’étude' },
   { champ: 'type_profil_id', libelle: 'Type de profil' },
-  { champ: 'email_verifie', libelle: 'Email vérifié' },
+  { champ: 'situation_handicap', libelle: 'Situation de handicap' },
+  // L'adresse et sa vérification ne font qu'un champ : sans adresse il n'y a
+  // pas de compte, donc la compter à part reviendrait à créditer tout le monde
+  // d'un point acquis d'avance. Seule la vérification distingue les profils.
+  { champ: 'email_verifie', libelle: 'Adresse email vérifiée' },
 ];
 
 export interface Completion {
@@ -108,6 +111,11 @@ export class ProfilCompletionService {
         return !!(user.profil_photo_path?.trim() || user.photo?.trim());
       case 'email_verifie':
         return user.verifier === true;
+      // Un « non » est une réponse. Seule l'absence de réponse — NULL — laisse
+      // le champ vide. Voir la migration 088 : la valeur par défaut `false` a
+      // été retirée, sans quoi personne n'aurait jamais eu ce champ à remplir.
+      case 'situation_handicap':
+        return user.situation_handicap !== null && user.situation_handicap !== undefined;
       default: {
         const v = user[champ];
         return v !== null && v !== undefined && String(v).trim() !== '';
@@ -122,6 +130,7 @@ export class ProfilCompletionService {
         'id', 'nom', 'prenom', 'email', 'sexe', 'pseudo', 'telephone', 'photo',
         'profil_photo_path', 'age_group', 'zone_residence', 'departement_id', 'ville_id',
         'etablissement_id', 'filiere_id', 'niveau_etude_id', 'type_profil_id', 'verifier',
+        'situation_handicap',
       ] as any,
     });
     if (!user) throw new NotFoundException('Utilisateur introuvable');
@@ -167,6 +176,7 @@ export class ProfilCompletionService {
       .map((c) => {
         if (c.champ === 'photo') return `(CASE WHEN COALESCE(NULLIF(TRIM(profil_photo_path), ''), NULLIF(TRIM(photo), '')) IS NOT NULL THEN 1 ELSE 0 END)`;
         if (c.champ === 'email_verifie') return `(CASE WHEN verifier THEN 1 ELSE 0 END)`;
+        if (c.champ === 'situation_handicap') return `(CASE WHEN situation_handicap IS NOT NULL THEN 1 ELSE 0 END)`;
         if (['departement_id', 'ville_id', 'etablissement_id', 'filiere_id', 'niveau_etude_id', 'type_profil_id', 'sexe', 'age_group'].includes(c.champ))
           return `(CASE WHEN ${c.champ} IS NOT NULL THEN 1 ELSE 0 END)`;
         return `(CASE WHEN NULLIF(TRIM(${c.champ}), '') IS NOT NULL THEN 1 ELSE 0 END)`;
