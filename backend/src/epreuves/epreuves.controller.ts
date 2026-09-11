@@ -13,7 +13,7 @@ import { CurrentCountry } from '../common/decorators/current-country.decorator';
 import { ResourceAccessService } from '../resource-access/resource-access.service';
 import { EntitlementService, Feature } from '../abonnements/entitlement.service';
 import { QuotaService } from '../abonnements/quota.service';
-import { ProfilIncompletException, QuotaDepasseException } from '../abonnements/quota.guard';
+import { ProfilIncompletException, QuotaDepasseException, QuotaGratuitNonEligibleException } from '../abonnements/quota.guard';
 import { FeatureQuota } from '../abonnements/entities/quota-consommation.entity';
 
 @ApiTags('epreuves')
@@ -53,6 +53,16 @@ export class EpreuvesController {
         return;
       }
       throw new ProfilIncompletException(Feature.EPREUVE_VIEW, decision);
+    }
+
+    if (decision.reason === 'FREE_QUOTA_NOT_ELIGIBLE') {
+      if (!this.entitlement.verrouActif) {
+        this.logger.warn(
+          `[verrou eteint] quota appareil non eligible — utilisateur=${utilisateurId} epreuve=${epreuveId}`,
+        );
+        return;
+      }
+      throw new QuotaGratuitNonEligibleException(Feature.EPREUVE_VIEW);
     }
 
     // Rien à décompter : abonné, admin, ou quota désactivé par l'administration.

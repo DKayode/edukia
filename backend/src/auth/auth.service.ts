@@ -73,19 +73,19 @@ export class AuthService {
 
   async register(pays: string, registerDto: RegisterDto): Promise<Utilisateur> {
     this.logger.log(`Tentative d'inscription via /auth/register pour: ${registerDto.email} (pays=${pays})`);
-    const hashedPassword = await bcrypt.hash(registerDto.mot_de_passe, 10);
     const user = await this.utilisateursService.inscription(pays, {
       nom: registerDto.nom,
       prenom: registerDto.prenom,
       email: registerDto.email,
       pseudo: registerDto.pseudo,
-      mot_de_passe: hashedPassword, // Note: InscriptionDto expects plain password, but we hash here? check service
+      mot_de_passe: registerDto.mot_de_passe,
       role: registerDto.role,
       sexe: registerDto.sexe,
       age_group: registerDto.age_group,
       zone_residence: registerDto.zone_residence,
       situation_handicap: registerDto.situation_handicap,
-      code_parrainage: registerDto.code_parrainage
+      code_parrainage: registerDto.code_parrainage,
+      device_attestation: registerDto.device_attestation,
     });
     this.logger.log(`Inscription réussie via /auth/register: ${user.email} (ID: ${user.id})`);
     return user;

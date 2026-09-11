@@ -7,7 +7,7 @@ import { AbonnementsService } from './abonnements.service';
 import { ConsommerKetsiaDto } from './dto/consommer-ketsia.dto';
 import { SouscrireDto } from './dto/souscrire.dto';
 import { FeatureQuota } from './entities/quota-consommation.entity';
-import { ProfilIncompletException, QuotaDepasseException } from './quota.guard';
+import { ProfilIncompletException, QuotaDepasseException, QuotaGratuitNonEligibleException } from './quota.guard';
 import { QuotaService } from './quota.service';
 import { EntitlementService, Feature } from './entitlement.service';
 import { ParrainageService } from './parrainage.service';
@@ -106,6 +106,12 @@ export class AbonnementsController {
         return { allowed: true, reason: 'PROFIL_INCOMPLET', quota: decision.quota, verrou_actif: false };
       }
       throw new ProfilIncompletException(Feature.KETSIA_AI, decision);
+    }
+    if (decision.reason === 'FREE_QUOTA_NOT_ELIGIBLE') {
+      if (!this.entitlement.verrouActif) {
+        return { allowed: true, reason: decision.reason, verrou_actif: false };
+      }
+      throw new QuotaGratuitNonEligibleException(Feature.KETSIA_AI);
     }
 
     // Aucun plafond applicable (abonné, admin, ou quota désactivé).

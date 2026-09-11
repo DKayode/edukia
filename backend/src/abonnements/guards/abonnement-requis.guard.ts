@@ -59,12 +59,16 @@ export class AbonnementRequisGuard implements CanActivate {
       error:
         decision.reason === 'PROFIL_INCOMPLET'
           ? 'PROFIL_INCOMPLET'
+          : decision.reason === 'FREE_QUOTA_NOT_ELIGIBLE'
+            ? 'FREE_QUOTA_NOT_ELIGIBLE'
           : decision.reason === 'QUOTA_EXCEEDED'
             ? 'QUOTA_EXCEEDED'
             : 'SUBSCRIPTION_REQUIRED',
       message:
         decision.reason === 'PROFIL_INCOMPLET'
           ? 'Complétez votre profil pour accéder à cette ressource.'
+          : decision.reason === 'FREE_QUOTA_NOT_ELIGIBLE'
+            ? 'Les avantages gratuits ont déjà été attribués sur cet appareil. Un abonnement est requis.'
           : decision.reason === 'QUOTA_EXCEEDED'
             ? 'Vous avez atteint la limite gratuite. Un abonnement est requis pour continuer.'
             : 'Un abonnement actif est requis pour accéder à cette ressource.',

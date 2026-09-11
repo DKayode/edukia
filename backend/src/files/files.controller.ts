@@ -17,7 +17,7 @@ import { UploadUrlRequestDto } from './dto/upload-url.dto';
 import { FILE_FIELD_REGISTRY } from './registry';
 import { EntitlementService, Feature } from '../abonnements/entitlement.service';
 import { QuotaService } from '../abonnements/quota.service';
-import { ProfilIncompletException, QuotaDepasseException } from '../abonnements/quota.guard';
+import { ProfilIncompletException, QuotaDepasseException, QuotaGratuitNonEligibleException } from '../abonnements/quota.guard';
 import { FeatureQuota } from '../abonnements/entities/quota-consommation.entity';
 import { ResourceAccessService } from '../resource-access/resource-access.service';
 
@@ -243,6 +243,16 @@ export class FilesController {
                 return;
             }
             throw new ProfilIncompletException(feature, decision);
+        }
+
+        if (decision.reason === 'FREE_QUOTA_NOT_ELIGIBLE') {
+            if (!this.entitlement.verrouActif) {
+                this.logger.warn(
+                    `[verrou eteint] quota appareil non eligible — utilisateur=${utilisateurId} ${entity}/${uuid}`,
+                );
+                return;
+            }
+            throw new QuotaGratuitNonEligibleException(feature);
         }
 
         // Voir EpreuvesController : pas de `quota` sur une décision autorisée

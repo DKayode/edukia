@@ -139,6 +139,10 @@ export class Utilisateur {
   @Column({ type: 'varchar', length: 50, default: 'benin' })
   pays: string;
 
+  /** False only removes promotional quotas; paid subscriptions remain authoritative. */
+  @Column({ name: 'quota_gratuit_eligible', type: 'boolean', default: true })
+  quota_gratuit_eligible: boolean;
+
   @Column({ nullable: true })
   etablissement_id: number;
 
