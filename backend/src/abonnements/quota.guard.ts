@@ -20,6 +20,17 @@ export class ProfilIncompletException extends ForbiddenException {
   }
 }
 
+export class QuotaGratuitNonEligibleException extends ForbiddenException {
+  constructor(feature: Feature) {
+    super({
+      statusCode: 403,
+      error: 'FREE_QUOTA_NOT_ELIGIBLE',
+      message: 'Les avantages gratuits ont deja ete attribues sur cet appareil. Un abonnement est requis.',
+      feature,
+    });
+  }
+}
+
 /**
  * Refus par épuisement du quota gratuit, au même format que celui du guard
  * d'abonnement : `error` est le contrat machine que le mobile branche sur

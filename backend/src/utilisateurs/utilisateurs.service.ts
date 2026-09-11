@@ -1,6 +1,6 @@
-import { Injectable, ConflictException, NotFoundException, Logger, BadRequestException } from '@nestjs/common';
+import { Injectable, ConflictException, NotFoundException, Logger, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { Repository, Brackets, LessThan, IsNull } from 'typeorm';
-import { Utilisateur } from './entities/utilisateur.entity';
+import { RoleType, Utilisateur } from './entities/utilisateur.entity';
 import { Prestataire } from '../prestataires/entities/prestataire.entity';
 import { Recruteur } from '../recruteurs/entities/recruteur.entity';
 import { Departement } from '../departements/entities/departement.entity';
@@ -24,6 +24,7 @@ import { TypeFichier } from 'src/fichiers/entities/fichier.entity';
 import { MailService } from '../mail/mail.service';
 import { IsEmail } from 'class-validator';
 import * as crypto from 'crypto';
+import { DeviceCreditEligibilityService } from '../device-credits/device-credit-eligibility.service';
 
 @Injectable()
 export class UtilisateursService {
@@ -35,6 +36,7 @@ export class UtilisateursService {
     private readonly fichiersService: FichiersService,
     private readonly firebaseService: FirebaseService,
     private readonly mailService: MailService,
+    private readonly deviceCredits: DeviceCreditEligibilityService,
   ) { }
 
   private get utilisateursRepository(): Repository<Utilisateur> {
@@ -154,8 +156,19 @@ export class UtilisateursService {
     });
   }
 
-  async inscription(pays: string, inscriptionDto: InscriptionDto) {
+  async inscription(
+    pays: string,
+    inscriptionDto: InscriptionDto,
+    options: { trustedBackOffice?: boolean } = {},
+  ) {
     this.logger.log(`Tentative d'inscription pour: ${inscriptionDto.email} (pays=${pays})`);
+
+    if (inscriptionDto.role === RoleType.ADMIN && !options.trustedBackOffice) {
+      throw new ForbiddenException('La creation d\'un administrateur exige un compte administrateur');
+    }
+
+    // Never spread an attestation token into the persisted user or API response.
+    const { device_attestation: deviceAttestation, ...donneesInscription } = inscriptionDto;
 
     // Check if email already exists
     const existingUser = await this.utilisateursRepository.findOne({
@@ -172,7 +185,7 @@ export class UtilisateursService {
 
         // Update user properties
         const updatedUser = this.utilisateursRepository.merge(existingUser, {
-          ...inscriptionDto,
+          ...donneesInscription,
           mot_de_passe: hashedPassword,
           est_desactive: false,
           date_suppression_prevue: null,
@@ -230,6 +243,10 @@ export class UtilisateursService {
       }
     }
 
+    const preparedDeviceCredit = options.trustedBackOffice
+      ? null
+      : await this.deviceCredits.prepare(deviceAttestation, { email: inscriptionDto.email, pays });
+
     // Hash password before saving
     const hashedPassword = await bcrypt.hash(inscriptionDto.mot_de_passe, 10);
 
@@ -244,17 +261,34 @@ export class UtilisateursService {
 
     // Create new user with hashed password
     const newUser = this.utilisateursRepository.create({
-      ...inscriptionDto,
+      ...donneesInscription,
       pays,
       mot_de_passe: hashedPassword,
       parrain: parrain,
       code_parrainage_saisi: inscriptionDto.code_parrainage ?? null,
       mon_code_parrainage: monCodeParrainage,
-      uuid: crypto.randomUUID()
+      uuid: crypto.randomUUID(),
+      // Fail closed until the device decision has been persisted below.
+      quota_gratuit_eligible: false,
     });
 
     // Save user
     const savedUser = await this.utilisateursRepository.save(newUser);
+
+    const quotaDecision = options.trustedBackOffice
+      ? { eligible: true, reason: 'TRUSTED_BACK_OFFICE' }
+      : await this.deviceCredits.allocate(savedUser.id, pays, preparedDeviceCredit);
+    savedUser.quota_gratuit_eligible = quotaDecision.eligible;
+    try {
+      await this.utilisateursRepository.update(savedUser.id, {
+        quota_gratuit_eligible: quotaDecision.eligible,
+      });
+    } catch {
+      // The row was created fail-closed. A transient update failure must not
+      // turn a successful signup into a retry that collides with its own email.
+      savedUser.quota_gratuit_eligible = false;
+      this.logger.error(`Mise a jour eligibilite quota echouee: utilisateur=${savedUser.id}`);
+    }
 
     // Registre unifié des codes (#247). Best-effort : l'inscription ne doit pas
     // échouer parce que le registre est indisponible — la résolution à l'achat

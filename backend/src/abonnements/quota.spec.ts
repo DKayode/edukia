@@ -223,11 +223,15 @@ describe('QuotaService', () => {
 
 describe('EntitlementService — quotas', () => {
   let abonnements: any, utilisateurs: any, config: any, quotas: QuotaService, profils: any, service: EntitlementService;
+  let deviceCreditMode: string;
 
   beforeEach(() => {
+    deviceCreditMode = 'enforce';
     abonnements = { findOne: jest.fn().mockResolvedValue(null), find: jest.fn().mockResolvedValue([]) };
     utilisateurs = { findOne: jest.fn().mockResolvedValue({ id: 1, role: RoleType.ETUDIANT }) };
-    config = { get: jest.fn().mockReturnValue('true') };
+    config = {
+      get: jest.fn((key: string) => key === 'DEVICE_CREDIT_CONTROL_MODE' ? deviceCreditMode : 'true'),
+    };
     quotas = new QuotaService(depotEnMemoire() as any, depotConfig() as any);
     profils = { estConforme: jest.fn().mockResolvedValue({ conforme: true, pourcentage: 100, seuil: 95, actif: false }) };
     service = new EntitlementService(abonnements, utilisateurs, config, quotas, profils);
@@ -248,6 +252,64 @@ describe('EntitlementService — quotas', () => {
     const d = await service.check(1, Feature.CONCOURS_DOWNLOAD, RoleType.ETUDIANT);
     expect(d).toMatchObject({ allowed: false, reason: 'SUBSCRIPTION_REQUIRED' });
     expect(d.quota).toBeUndefined();
+  });
+
+  it('refuse les quotas gratuits au quatrieme compte du meme appareil', async () => {
+    utilisateurs.findOne.mockResolvedValue({
+      id: 1,
+      role: RoleType.ETUDIANT,
+      quota_gratuit_eligible: false,
+    });
+
+    const ressources = await service.check(1, Feature.EPREUVE_VIEW, RoleType.ETUDIANT);
+    const ketsia = await service.check(1, Feature.KETSIA_AI, RoleType.ETUDIANT);
+
+    expect(ressources).toEqual({ allowed: false, reason: 'FREE_QUOTA_NOT_ELIGIBLE' });
+    expect(ketsia).toEqual({ allowed: false, reason: 'FREE_QUOTA_NOT_ELIGIBLE' });
+  });
+
+  it('rend immediatement les quotas gratuits quand le controle appareil repasse a off', async () => {
+    deviceCreditMode = 'off';
+    utilisateurs.findOne.mockResolvedValue({
+      id: 1,
+      role: RoleType.ETUDIANT,
+      quota_gratuit_eligible: false,
+    });
+
+    expect(await service.check(1, Feature.KETSIA_AI, RoleType.ETUDIANT))
+      .toMatchObject({ allowed: true, reason: 'FREE_QUOTA' });
+    expect(utilisateurs.findOne).not.toHaveBeenCalled();
+  });
+
+  it('laisse un compte non eligible utiliser son abonnement payant', async () => {
+    utilisateurs.findOne.mockResolvedValue({
+      id: 1,
+      role: RoleType.ETUDIANT,
+      quota_gratuit_eligible: false,
+    });
+    abonnements.findOne.mockResolvedValue({
+      date_fin: new Date(Date.now() + 86400000),
+      plan: { code: 'MENSUEL' },
+    });
+
+    expect(await service.check(1, Feature.KETSIA_AI, RoleType.ETUDIANT))
+      .toMatchObject({ allowed: true, reason: 'SUBSCRIBED' });
+  });
+
+  it('n applique pas la limite appareil quand les quotas sont desactives', async () => {
+    utilisateurs.findOne.mockResolvedValue({
+      id: 1,
+      role: RoleType.ETUDIANT,
+      quota_gratuit_eligible: false,
+    });
+    quotas = new QuotaService(
+      depotEnMemoire() as any,
+      depotConfig([{ feature: 'RESOURCE_VIEW', est_actif: false }]) as any,
+    );
+    service = new EntitlementService(abonnements, utilisateurs, config, quotas, profils);
+
+    expect(await service.check(1, Feature.EPREUVE_VIEW, RoleType.ETUDIANT))
+      .toMatchObject({ allowed: true, reason: 'FREE_QUOTA' });
   });
 
   it('donne des décisions divergentes selon la feature', async () => {

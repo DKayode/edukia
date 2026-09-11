@@ -84,7 +84,7 @@ export class UtilisateursController {
   @ApiOperation({ summary: 'Créer un nouvel utilisateur (Admin)' })
   @ApiResponse({ status: 201, description: 'Utilisateur créé avec succès' })
   async create(@CurrentCountry() pays: string, @Body() inscriptionDto: InscriptionDto) {
-    return this.utilisateursService.inscription(pays, inscriptionDto);
+    return this.utilisateursService.inscription(pays, inscriptionDto, { trustedBackOffice: true });
   }
 
   @UseGuards(JwtAuthGuard, RoleGuard)

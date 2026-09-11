@@ -1,6 +1,8 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsEmail, IsString, MinLength, IsOptional, IsEnum, IsNumber, IsDateString, IsIn, IsBoolean } from 'class-validator';
+import { Type } from 'class-transformer';
+import { IsEmail, IsString, MinLength, IsOptional, IsEnum, IsNumber, IsIn, IsBoolean, ValidateNested } from 'class-validator';
 import { RoleType, SexeType, AgeGroup } from '../entities/utilisateur.entity';
+import { DeviceAttestationDto } from '../../device-credits/dto/device-attestation.dto';
 
 export class InscriptionDto {
   @ApiProperty({ example: 'Doe', description: 'Le nom de l\'utilisateur' })
@@ -83,4 +85,10 @@ export class InscriptionDto {
   @IsOptional()
   @IsBoolean()
   situation_handicap?: boolean;
+
+  @ApiProperty({ type: DeviceAttestationDto, required: false })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => DeviceAttestationDto)
+  device_attestation?: DeviceAttestationDto;
 }

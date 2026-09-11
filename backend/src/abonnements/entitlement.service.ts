@@ -21,6 +21,7 @@ export type MotifDecision =
   | 'SUBSCRIBED'
   | 'ADMIN'
   | 'FREE_QUOTA'
+  | 'FREE_QUOTA_NOT_ELIGIBLE'
   | 'QUOTA_EXCEEDED'
   | 'SUBSCRIPTION_REQUIRED'
   /** Profil sous le seuil de complétion exigé (#259). */
@@ -83,6 +84,11 @@ export class EntitlementService {
     return String(this.config.get('ABONNEMENTS_VERROU_ACTIF') ?? 'false').toLowerCase() === 'true';
   }
 
+  /** Kill switch indépendant permettant d'annuler immédiatement la règle appareil. */
+  get controleAppareilActif(): boolean {
+    return String(this.config.get('DEVICE_CREDIT_CONTROL_MODE') ?? 'off').toLowerCase() === 'enforce';
+  }
+
   /** Abonnement ACTIF dont la date de fin n'est pas passée. */
   async abonnementActif(utilisateurId: number): Promise<Abonnement | null> {
     if (!utilisateurId) return null;
@@ -99,6 +105,17 @@ export class EntitlementService {
 
   async hasActiveSubscription(utilisateurId: number): Promise<boolean> {
     return (await this.abonnementActif(utilisateurId)) !== null;
+  }
+
+  async estEligibleQuotaGratuit(utilisateurId: number): Promise<boolean> {
+    if (!utilisateurId) return false;
+    if (!this.controleAppareilActif) return true;
+    const user = await this.utilisateurs.findOne({
+      where: { id: utilisateurId },
+      select: ['id', 'quota_gratuit_eligible'],
+    });
+    // Undefined keeps unit-test doubles and pre-migration objects compatible.
+    return !!user && user.quota_gratuit_eligible !== false;
   }
 
   /**
@@ -156,6 +173,9 @@ export class EntitlementService {
     if (featureQuota) {
       const reglage = await this.quotas.reglage(featureQuota, pays);
       if (!reglage.estActif) return { allowed: true, reason: 'FREE_QUOTA' };
+      if (!(await this.estEligibleQuotaGratuit(utilisateurId))) {
+        return { allowed: false, reason: 'FREE_QUOTA_NOT_ELIGIBLE' };
+      }
       const used = await this.quotas.compter(utilisateurId, featureQuota, pays);
       return used < reglage.limite
         ? { allowed: true, reason: 'FREE_QUOTA', quota: { used, limit: reglage.limite } }
@@ -212,7 +232,10 @@ export class EntitlementService {
       return features.reduce((acc, f) => ({ ...acc, [f]: { ...decision } }), {} as Record<Feature, DecisionDroit>);
     }
 
-    const etat = await this.quotas.etatPourUtilisateur(utilisateurId, pays);
+    const [etat, eligibleQuotaGratuit] = await Promise.all([
+      this.quotas.etatPourUtilisateur(utilisateurId, pays),
+      this.estEligibleQuotaGratuit(utilisateurId),
+    ]);
     return features.reduce((acc, f) => {
       const featureQuota = EntitlementService.QUOTA_PAR_FEATURE[f];
       if (!featureQuota) {
@@ -224,6 +247,9 @@ export class EntitlementService {
       // contredirait `check()`, qui n'en renvoie aucun dans ce cas.
       if (!est_actif) {
         return { ...acc, [f]: { allowed: true, reason: 'FREE_QUOTA' as const } };
+      }
+      if (!eligibleQuotaGratuit) {
+        return { ...acc, [f]: { allowed: false, reason: 'FREE_QUOTA_NOT_ELIGIBLE' as const } };
       }
       return {
         ...acc,
