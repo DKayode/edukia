@@ -17,7 +17,7 @@ Complète, sans les remplacer :
 | changement | urgence | en production ? |
 |---|---|---|
 | **Le verrou est ACTIF** — les 403 ne sont plus simulés | 🔴 bloquant | **oui**, depuis le 11/09 |
-| Rafraîchir le jeton après un achat, sinon l'IA reste plafonnée | 🔴 bloquant | **pas encore** — §2 |
+| Rafraîchir le jeton après un achat, sinon l'IA reste plafonnée | 🔴 bloquant | **oui**, depuis le 11/09 |
 | `POST /codes/valider` ne demande plus de compte | 🟡 opportunité | oui |
 | Les plans portent une liste d'`avantages` à afficher | 🟡 à intégrer | oui |
 | La complétion du profil compte 15 champs, l'email a fusionné | 🟢 informatif | oui |
@@ -100,13 +100,7 @@ réellement au refus s'il force.
 
 ## 2. 🔴 Rafraîchir le jeton après un achat
 
-> ⚠️ **Pas encore déployé.** Cette section décrit un changement en attente de
-> revue. Le claim n'existe pas encore dans les jetons de production : un
-> décodage aujourd'hui ne le trouvera pas. Elle est écrite à l'avance parce que
-> le travail côté mobile — rafraîchir après un achat — est indépendant et peut
-> être préparé dès maintenant. Nous préviendrons à la mise en production.
-
-Le jeton d'accès portera un claim `abonnement_actif`, que le backend
+Le jeton d'accès porte désormais un claim `abonnement_actif`, que le backend
 IA (Ketsia) lit pour décider s'il plafonne l'usage de l'assistante.
 
 ```json
@@ -130,7 +124,7 @@ POST /auth/refresh
 
 et remplacer le jeton stocké par celui renvoyé. Le claim y sera à `true`.
 
-Vérifié sur l'environnement de développement :
+Vérifié en production :
 
 ```
 sans abonnement            abonnement_actif: false
