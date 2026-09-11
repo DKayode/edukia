@@ -16,7 +16,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { AlertTriangle, Loader2, Pencil, Plus, Tag } from "lucide-react";
+import { AlertTriangle, Check, Loader2, Pencil, Plus, Tag } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import {
   abonnementsService,
@@ -28,6 +28,7 @@ const FORMULAIRE_VIDE: PlanPayload = {
   code: "",
   libelle: "",
   description: "",
+  avantages: [],
   prix: 0,
   devise: "XOF",
   duree_jours: 30,
@@ -50,10 +51,18 @@ export default function PlansAbonnement() {
   const rafraichir = () => queryClient.invalidateQueries({ queryKey: ["abonnements", "plans"] });
 
   const enregistrement = useMutation({
-    mutationFn: (payload: PlanPayload) =>
-      planEdite
-        ? abonnementsService.updatePlan(planEdite.uuid, payload)
-        : abonnementsService.createPlan(payload),
+    mutationFn: (payload: PlanPayload) => {
+      // Les lignes vides du champ « avantages » sont écartées ici, pas à la
+      // frappe : les retirer au fil de la saisie empêcherait d'appuyer sur
+      // Entrée pour commencer la ligne suivante.
+      const propre: PlanPayload = {
+        ...payload,
+        avantages: (payload.avantages ?? []).map((a) => a.trim()).filter(Boolean),
+      };
+      return planEdite
+        ? abonnementsService.updatePlan(planEdite.uuid, propre)
+        : abonnementsService.createPlan(propre);
+    },
     onSuccess: () => {
       rafraichir();
       setDialogOuvert(false);
@@ -98,6 +107,7 @@ export default function PlansAbonnement() {
       code: plan.code,
       libelle: plan.libelle,
       description: plan.description ?? "",
+      avantages: plan.avantages ?? [],
       prix: plan.prix,
       devise: plan.devise,
       duree_jours: plan.duree_jours,
@@ -179,6 +189,22 @@ export default function PlansAbonnement() {
                       <div className="font-medium">{plan.libelle}</div>
                       {plan.description && (
                         <div className="text-xs text-muted-foreground">{plan.description}</div>
+                      )}
+                      {!!plan.avantages?.length && (
+                        <ul className="mt-1.5 space-y-0.5">
+                          {plan.avantages.map((a) => (
+                            <li key={a} className="flex items-start gap-1.5 text-xs text-muted-foreground">
+                              <Check className="mt-0.5 h-3 w-3 shrink-0 text-emerald-600" />
+                              <span>{a}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                      {!plan.avantages?.length && plan.est_actif && (
+                        <div className="mt-1.5 flex items-start gap-1.5 text-xs text-amber-600">
+                          <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
+                          <span>Aucun avantage décrit — le plan est en vente sans dire ce qu’il apporte.</span>
+                        </div>
                       )}
                     </TableCell>
                     <TableCell className="text-right font-medium">
@@ -264,6 +290,30 @@ export default function PlansAbonnement() {
                 value={formulaire.description ?? ""}
                 onChange={(e) => setFormulaire({ ...formulaire, description: e.target.value })}
               />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="avantages">Ce que l'abonnement débloque</Label>
+              <Textarea
+                id="avantages"
+                rows={5}
+                placeholder={"Épreuves en illimité\nConcours : téléchargement des sujets\nKetsia, l'assistante IA, sans limite"}
+                value={(formulaire.avantages ?? []).join("\n")}
+                onChange={(e) =>
+                  setFormulaire({
+                    ...formulaire,
+                    // Une ligne par avantage. Les lignes vides sont écartées à
+                    // l'enregistrement plutôt qu'à la frappe, sinon impossible
+                    // d'appuyer sur Entrée pour commencer la suivante.
+                    avantages: e.target.value.split("\n"),
+                  })
+                }
+              />
+              <p className="text-xs text-muted-foreground">
+                Une ligne par avantage — c'est ce que l'utilisateur lit avant de payer. N'y écrivez
+                pas les plafonds gratuits : ils se règlent dans <strong>Quotas gratuits</strong> et
+                la mention deviendrait fausse à la première modification.
+              </p>
             </div>
 
             <div className="grid grid-cols-3 gap-4">

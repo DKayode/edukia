@@ -22,6 +22,16 @@ export class PlanAbonnement {
   @Column({ type: 'text', nullable: true })
   description: string | null;
 
+  /**
+   * Ce que l'abonnement débloque, une ligne par avantage.
+   *
+   * Séparé de `description`, qui dit la durée : au moment de payer, on a besoin
+   * de lire ce qu'on gagne, ressource par ressource. Une liste plutôt qu'un
+   * texte libre, pour que le mobile l'affiche en puces sans découper de phrase.
+   */
+  @Column({ type: 'text', array: true, nullable: true })
+  avantages: string[] | null;
+
   // `numeric` revient en chaîne depuis pg : la conversion est explicite pour que
   // le prix reste un nombre côté API et dans les calculs de remise (#247).
   @Column({ type: 'numeric', precision: 14, scale: 2, transformer: { to: (v: number) => v, from: (v: string) => (v === null ? null : Number(v)) } })
