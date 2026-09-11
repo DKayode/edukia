@@ -125,38 +125,50 @@ export class QuotaService {
       periode,
     };
 
-    if (await this.consommations.findOne({ where: cle })) {
-      return {
-        allowed: true,
-        used: await this.compterPeriode(utilisateurId, feature, periode),
-        limit,
-        nouveau: false,
-        periode,
-      };
-    }
+    const transaction = this.consommations.manager?.transaction?.bind(this.consommations.manager);
+    const executer = async (repo: Repository<QuotaConsommation>) => {
+      await repo.query?.(
+        'SELECT pg_advisory_xact_lock(hashtextextended($1, 0))',
+        [`quota:${pays}:${utilisateurId}:${feature}:${periode}`],
+      );
 
-    const used = await this.compterPeriode(utilisateurId, feature, periode);
-    if (used >= limit) {
-      return { allowed: false, used, limit, nouveau: false, periode };
-    }
-
-    try {
-      await this.consommations.insert({ ...cle, pays });
-      return { allowed: true, used: used + 1, limit, nouveau: true, periode };
-    } catch (err) {
-      // 23505 : une requête concurrente a inséré la même ligne. La ressource est
-      // consommée, et une seule fois — on autorise.
-      if (String(err?.code) === '23505') {
+      if (await repo.findOne({ where: cle })) {
         return {
           allowed: true,
-          used: await this.compterPeriode(utilisateurId, feature, periode),
+          used: await this.compterPeriodeAvecRepo(repo, utilisateurId, feature, periode),
           limit,
           nouveau: false,
           periode,
         };
       }
-      throw err;
-    }
+
+      const used = await this.compterPeriodeAvecRepo(repo, utilisateurId, feature, periode);
+      if (used >= limit) {
+        return { allowed: false, used, limit, nouveau: false, periode };
+      }
+
+      try {
+        await repo.insert({ ...cle, pays });
+        return { allowed: true, used: used + 1, limit, nouveau: true, periode };
+      } catch (err) {
+        // 23505 : une requête concurrente a inséré la même ligne. La ressource est
+        // consommée, et une seule fois — on autorise.
+        if (String(err?.code) === '23505') {
+          return {
+            allowed: true,
+            used: await this.compterPeriodeAvecRepo(repo, utilisateurId, feature, periode),
+            limit,
+            nouveau: false,
+            periode,
+          };
+        }
+        throw err;
+      }
+    };
+
+    return transaction
+      ? transaction((manager) => executer(manager.getRepository(QuotaConsommation)))
+      : executer(this.consommations);
   }
 
   /**
@@ -206,7 +218,16 @@ export class QuotaService {
   }
 
   private async compterPeriode(utilisateurId: number, feature: FeatureQuota, periode: string) {
-    return this.consommations.count({ where: { utilisateur_id: utilisateurId, feature, periode } });
+    return this.compterPeriodeAvecRepo(this.consommations, utilisateurId, feature, periode);
+  }
+
+  private async compterPeriodeAvecRepo(
+    repo: Repository<QuotaConsommation>,
+    utilisateurId: number,
+    feature: FeatureQuota,
+    periode: string,
+  ) {
+    return repo.count({ where: { utilisateur_id: utilisateurId, feature, periode } });
   }
 
   /** Premier jour du mois suivant, en UTC — cohérent avec `periodeCourante`. */

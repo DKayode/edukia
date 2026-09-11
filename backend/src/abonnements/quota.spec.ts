@@ -35,6 +35,7 @@ const depotEnMemoire = () => {
       lignes.push(l);
       return { identifiers: [] };
     }),
+    query: jest.fn(async () => []),
   };
 };
 
@@ -130,6 +131,14 @@ describe('QuotaService', () => {
     const [a, b] = await Promise.all([consommer(4), consommer(4)]);
     expect(a.allowed && b.allowed).toBe(true);
     expect(depot.lignes.filter((l) => l.resource_id === 4)).toHaveLength(1);
+  });
+
+  it('sérialise les consommations d’un même compteur avant de compter', async () => {
+    await consommer(4);
+    expect(depot.query).toHaveBeenCalledWith(
+      'SELECT pg_advisory_xact_lock(hashtextextended($1, 0))',
+      [expect.stringContaining('quota:benin:1:RESOURCE_VIEW:')],
+    );
   });
 
   it('rend les identifiants consommés pour le drapeau deja_consultee', async () => {
