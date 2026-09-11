@@ -105,7 +105,13 @@ export class CodeValidationService {
    */
   async valider(
     codeSaisi: string,
-    utilisateurId: number,
+    /**
+     * Absent pour un appel anonyme — un code se saisit souvent avant
+     * l'inscription. Deux refus deviennent alors indétectables : l'usage de son
+     * propre code et un code déjà consommé par ce compte. Sans conséquence, la
+     * souscription revalidant tout sous verrou, et elle exige un compte.
+     */
+    utilisateurId: number | undefined,
     contexte: { planId?: number; prix?: number; pays?: string } = {},
   ): Promise<ResultatValidation> {
     const code = await this.trouver(codeSaisi, contexte.pays);
@@ -132,7 +138,7 @@ export class CodeValidationService {
    * Le calcul vit ici, et pas chez l'appelant, pour qu'aperçu et souscription
    * ne puissent pas diverger.
    */
-  calculerEffets(code: Code, utilisateurId: number, prix?: number): EffetsAppliques {
+  calculerEffets(code: Code, utilisateurId: number | undefined, prix?: number): EffetsAppliques {
     const applique: EffetsAppliques = {};
 
     for (const e of code.effets ?? []) {
@@ -241,7 +247,7 @@ export class CodeValidationService {
 
   private async motifDeRefus(
     code: Code,
-    utilisateurId: number,
+    utilisateurId: number | undefined,
     planId?: number,
     manager?: EntityManager,
   ): Promise<MotifRefus | null> {
@@ -252,8 +258,8 @@ export class CodeValidationService {
     if (code.date_fin && new Date(code.date_fin) < maintenant) return 'EXPIRE';
 
     // Utiliser son propre code n'a aucun sens : ni remise offerte à soi-même,
-    // ni commission versée à soi-même.
-    if (code.proprietaire_id && code.proprietaire_id === utilisateurId) return 'AUTO_UTILISATION';
+    // ni commission versée à soi-même. Indécidable sans compte.
+    if (utilisateurId && code.proprietaire_id === utilisateurId) return 'AUTO_UTILISATION';
 
     const plans = (code as any).plans_eligibles as number[] | null;
     if (planId && plans?.length && !plans.includes(planId)) return 'PLAN_NON_ELIGIBLE';
@@ -270,8 +276,12 @@ export class CodeValidationService {
       if ((await compter('code_id = $1', [code.id])) >= code.usage_max_total) return 'QUOTA_TOTAL_ATTEINT';
     }
 
+    // Le plafond par personne suppose qu'on sache de qui il s'agit. Un appel
+    // anonyme y échappe donc — écrit ici explicitement plutôt que laissé à
+    // `utilisateur_id = NULL`, qui ne correspond jamais et donnerait le même
+    // résultat sans que l'intention soit lisible.
     const parUtilisateur = (code as any).usage_max_par_utilisateur ?? 1;
-    if (parUtilisateur > 0) {
+    if (utilisateurId && parUtilisateur > 0) {
       const n = await compter('code_id = $1 AND utilisateur_id = $2', [code.id, utilisateurId]);
       if (n >= parUtilisateur) return 'DEJA_UTILISE';
     }
