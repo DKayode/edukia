@@ -27,7 +27,9 @@ export const CHAMPS_PROFIL: { champ: string; libelle: string }[] = [
   { champ: 'filiere_id', libelle: 'Filière' },
   { champ: 'niveau_etude_id', libelle: 'Niveau d’étude' },
   { champ: 'type_profil_id', libelle: 'Type de profil' },
-  { champ: 'situation_handicap', libelle: 'Situation de handicap' },
+  // La situation de handicap est délibérément absente : sa colonne porte
+  // DEFAULT false, elle n'est donc jamais vide et vaudrait un point acquis
+  // d'avance pour tout le monde. La compter n'apprendrait rien.
   // L'adresse et sa vérification ne font qu'un champ : sans adresse il n'y a
   // pas de compte, donc la compter à part reviendrait à créditer tout le monde
   // d'un point acquis d'avance. Seule la vérification distingue les profils.
@@ -109,8 +111,6 @@ export class ProfilCompletionService {
       return `(CASE WHEN COALESCE(NULLIF(TRIM(profil_photo_path), ''), NULLIF(TRIM(photo), '')) IS NOT NULL THEN 1 ELSE 0 END)`;
     }
     if (champ === 'email_verifie') return `(CASE WHEN verifier THEN 1 ELSE 0 END)`;
-    // NULL = question non posée ; un « non » explicite compte comme réponse.
-    if (champ === 'situation_handicap') return `(CASE WHEN situation_handicap IS NOT NULL THEN 1 ELSE 0 END)`;
     if (['departement_id', 'ville_id', 'etablissement_id', 'filiere_id', 'niveau_etude_id', 'type_profil_id', 'sexe', 'age_group'].includes(champ)) {
       return `(CASE WHEN ${champ} IS NOT NULL THEN 1 ELSE 0 END)`;
     }
@@ -157,11 +157,6 @@ export class ProfilCompletionService {
         return !!(user.profil_photo_path?.trim() || user.photo?.trim());
       case 'email_verifie':
         return user.verifier === true;
-      // Un « non » est une réponse. Seule l'absence de réponse — NULL — laisse
-      // le champ vide. Voir la migration 088 : la valeur par défaut `false` a
-      // été retirée, sans quoi personne n'aurait jamais eu ce champ à remplir.
-      case 'situation_handicap':
-        return user.situation_handicap !== null && user.situation_handicap !== undefined;
       default: {
         const v = user[champ];
         return v !== null && v !== undefined && String(v).trim() !== '';
@@ -176,7 +171,6 @@ export class ProfilCompletionService {
         'id', 'nom', 'prenom', 'email', 'sexe', 'pseudo', 'telephone', 'photo',
         'profil_photo_path', 'age_group', 'zone_residence', 'departement_id', 'ville_id',
         'etablissement_id', 'filiere_id', 'niveau_etude_id', 'type_profil_id', 'verifier',
-        'situation_handicap',
       ] as any,
     });
     if (!user) throw new NotFoundException('Utilisateur introuvable');

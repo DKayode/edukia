@@ -38,8 +38,10 @@ describe('ProfilCompletionService', () => {
   });
 
   describe('champs comptés', () => {
-    it('compte situation_handicap', () => {
-      expect(CHAMPS_PROFIL.map((c) => c.champ)).toContain('situation_handicap');
+    it('exclut situation_handicap', () => {
+      // Sa colonne porte DEFAULT false : jamais vide, elle vaudrait un point
+      // acquis d'avance pour tout le monde et n'apprendrait rien.
+      expect(CHAMPS_PROFIL.map((c) => c.champ)).not.toContain('situation_handicap');
     });
 
     it('ne compte pas l’adresse email à part de sa vérification', () => {
@@ -50,8 +52,8 @@ describe('ProfilCompletionService', () => {
       expect(champs).toContain('email_verifie');
     });
 
-    it('en compte toujours seize', () => {
-      expect(CHAMPS_PROFIL).toHaveLength(16);
+    it('en compte quinze', () => {
+      expect(CHAMPS_PROFIL).toHaveLength(15);
     });
   });
 
@@ -72,7 +74,7 @@ describe('ProfilCompletionService', () => {
       expect(taux.every((t) => t.part === 0)).toBe(true);
     });
 
-    it('interroge la base une seule fois pour les seize champs', async () => {
+    it('interroge la base une seule fois pour tous les champs', async () => {
       const colonnes: any = { total: 10 };
       CHAMPS_PROFIL.forEach((_, i) => (colonnes[`c${i}`] = 1));
       dataSource.query.mockResolvedValue([colonnes]);
@@ -99,11 +101,11 @@ describe('ProfilCompletionService', () => {
   });
 
   describe('calcul', () => {
-    it('compte 19 % pour un compte fraîchement inscrit', async () => {
+    it('compte 20 % pour un compte fraîchement inscrit', async () => {
       config();
       const c = await service.pourUtilisateur(1);
       // nom, prénom, sexe — l'adresse email ne compte plus pour elle-même.
-      expect(c).toMatchObject({ champs_total: 16, champs_remplis: 3, pourcentage: 19 });
+      expect(c).toMatchObject({ champs_total: 15, champs_remplis: 3, pourcentage: 20 });
     });
 
     it('compte 100 % pour un profil entièrement rempli', async () => {
@@ -129,24 +131,14 @@ describe('ProfilCompletionService', () => {
     it('liste les champs manquants avec leur libellé', async () => {
       config();
       const c = await service.pourUtilisateur(1);
-      expect(c.manquants).toHaveLength(13);
+      expect(c.manquants).toHaveLength(12);
       expect(c.manquants).toContainEqual({ champ: 'telephone', libelle: 'Numéro de téléphone' });
     });
 
-    it('compte un « non » au handicap comme une réponse', async () => {
+    it('ne réclame jamais la situation de handicap', async () => {
       config();
-      utilisateurs.findOne.mockResolvedValue(utilisateurNeuf({ situation_handicap: false }));
       const c = await service.pourUtilisateur(1);
       expect(c.manquants.map((m) => m.champ)).not.toContain('situation_handicap');
-      expect(c.champs_remplis).toBe(4);
-    });
-
-    it('laisse le handicap vide tant que la question n’a pas été posée', async () => {
-      // NULL depuis la migration 088 : sans elle, DEFAULT false remplissait le
-      // champ à l'inscription et personne n'avait jamais rien à répondre.
-      config();
-      const c = await service.pourUtilisateur(1);
-      expect(c.manquants.map((m) => m.champ)).toContain('situation_handicap');
     });
 
     it('n’accorde plus l’adresse email comme un point acquis', async () => {
@@ -159,7 +151,7 @@ describe('ProfilCompletionService', () => {
     it('retire les champs exclus du calcul ET du dénominateur', async () => {
       config({ champs_exclus: ['pseudo', 'telephone', 'photo', 'type_profil_id'] });
       const c = await service.pourUtilisateur(1);
-      expect(c.champs_total).toBe(12);
+      expect(c.champs_total).toBe(11);
       expect(c.manquants.map((m) => m.champ)).not.toContain('pseudo');
     });
   });
@@ -168,7 +160,7 @@ describe('ProfilCompletionService', () => {
     it('déclare tout le monde conforme tant que le seuil est inactif', async () => {
       config({ est_actif: false });
       const c = await service.pourUtilisateur(1);
-      expect(c.pourcentage).toBe(19);
+      expect(c.pourcentage).toBe(20);
       // Le client n'a pas à connaître la règle d'activation pour choisir son écran.
       expect(c.conforme).toBe(true);
     });
@@ -184,12 +176,12 @@ describe('ProfilCompletionService', () => {
       expect((await service.pourUtilisateur(1)).conforme).toBe(true);
     });
 
-    it('95 % est inatteignable sans 100 % avec 16 champs', async () => {
-      // 15/16 = 93,75 % ; aucune valeur n'existe entre 93,75 et 100.
+    it('95 % est inatteignable sans 100 % avec 15 champs', async () => {
+      // 14/15 = 93,33 % ; aucune valeur n'existe entre 93 et 100.
       config({ est_actif: true, seuil_completion: 95 });
       utilisateurs.findOne.mockResolvedValue({ ...utilisateurComplet(), verifier: false });
       const c = await service.pourUtilisateur(1);
-      expect(c.pourcentage).toBe(94);
+      expect(c.pourcentage).toBe(93);
       expect(c.conforme).toBe(false);
     });
 

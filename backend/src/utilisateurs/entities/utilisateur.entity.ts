@@ -108,13 +108,9 @@ export class Utilisateur {
   @Column({ type: 'varchar', length: 20, nullable: true })
   zone_residence: string;
 
-  // Situation de handicap : booléen (oui/non). Remplace l'ancienne chaîne
-  // (visuel/auditif/…). Sans valeur par défaut depuis la migration 088 : NULL
-  // signifie « question non posée », et se distingue ainsi d'un « non »
-  // explicite — sans quoi le champ serait rempli d'avance pour tout le monde et
-  // ne dirait rien de la complétion du profil.
-  @Column({ type: 'boolean', nullable: true })
-  situation_handicap: boolean | null;
+  // Situation de handicap : booléen (oui/non). Remplace l'ancienne chaîne (visuel/auditif/…).
+  @Column({ type: 'boolean', nullable: true, default: false })
+  situation_handicap: boolean;
 
   @Column({ nullable: true })
   telephone: string;
