@@ -83,8 +83,14 @@ export class ProfilCompletionService {
     pays: string,
     champs: { seuil_completion?: number; est_actif?: boolean; champs_exclus?: string[] },
   ) {
-    const config = await this.configurations.findOne({ where: { pays } });
-    if (!config) throw new NotFoundException('Configuration de profil introuvable pour ce pays');
+    // La ligne est créée à la première écriture. La migration n'en a semé
+    // qu'une, pour le Bénin : exiger qu'elle existe rendait la page
+    // inutilisable pour tout autre pays — la lecture se repliait sur les
+    // valeurs par défaut, l'écriture échouait en « introuvable ». Le pays a
+    // déjà été validé par CountryMiddleware, qui refuse les inconnus.
+    const config =
+      (await this.configurations.findOne({ where: { pays } })) ??
+      this.configurations.create({ pays, seuil_completion: 95, est_actif: false });
     Object.assign(config, {
       ...(champs.seuil_completion !== undefined ? { seuil_completion: champs.seuil_completion } : {}),
       ...(champs.est_actif !== undefined ? { est_actif: champs.est_actif } : {}),

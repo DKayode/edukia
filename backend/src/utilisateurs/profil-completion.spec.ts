@@ -32,7 +32,11 @@ describe('ProfilCompletionService', () => {
 
   beforeEach(() => {
     utilisateurs = { findOne: jest.fn().mockResolvedValue(utilisateurNeuf()) };
-    configurations = { findOne: jest.fn().mockResolvedValue(null), save: jest.fn(async (c) => c) };
+    configurations = {
+      findOne: jest.fn().mockResolvedValue(null),
+      create: jest.fn((d) => ({ ...d })),
+      save: jest.fn(async (c) => c),
+    };
     dataSource = { query: jest.fn().mockResolvedValue([{ total: 0 }]) };
     service = new ProfilCompletionService(utilisateurs, configurations, dataSource);
   });
@@ -191,6 +195,34 @@ describe('ProfilCompletionService', () => {
       expect(r).toMatchObject({ conforme: true, actif: false });
       // Inutile de charger l'utilisateur pour une règle qui ne s'applique pas.
       expect(utilisateurs.findOne).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('pays sans configuration', () => {
+    it('crée la ligne à la première écriture', async () => {
+      // La migration n'en avait semé qu'une, pour le Bénin : régler le seuil
+      // d'un autre pays répondait « Configuration de profil introuvable ».
+      configurations.findOne.mockResolvedValue(null);
+      // `modifierReglage` relit après écriture : le stub doit donc rendre la
+      // ligne enregistrée, comme le ferait la base.
+      configurations.save.mockImplementation(async (c: any) => {
+        configurations.findOne.mockResolvedValue(c);
+        return c;
+      });
+      const r = await service.modifierReglage('senegal', { seuil_completion: 80 });
+      expect(configurations.create).toHaveBeenCalledWith(
+        expect.objectContaining({ pays: 'senegal', est_actif: false }),
+      );
+      expect(configurations.save).toHaveBeenCalledWith(
+        expect.objectContaining({ pays: 'senegal', seuil_completion: 80 }),
+      );
+      expect(r.seuil_completion).toBe(80);
+    });
+
+    it('ne crée rien quand la ligne existe', async () => {
+      config({ est_actif: false });
+      await service.modifierReglage('benin', { est_actif: true });
+      expect(configurations.create).not.toHaveBeenCalled();
     });
   });
 
