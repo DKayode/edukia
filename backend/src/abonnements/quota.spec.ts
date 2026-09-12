@@ -221,6 +221,56 @@ describe('QuotaService', () => {
   });
 });
 
+describe('QuotaService — pays sans configuration', () => {
+  let configurations: any, service: QuotaService;
+
+  beforeEach(() => {
+    configurations = {
+      findOne: jest.fn().mockResolvedValue(null),
+      find: jest.fn().mockResolvedValue([]),
+      create: jest.fn((d) => ({ ...d })),
+      save: jest.fn(async (d) => d),
+    };
+    service = new QuotaService(depotEnMemoire() as any, configurations as any);
+  });
+
+  it('ne plafonne PAS un pays dont le quota n’a jamais été réglé', async () => {
+    // Le repli valait `true`, sans effet tant que le verrou était éteint. Depuis
+    // son activation, il plafonnait réellement le Sénégal et le Congo sans
+    // qu'aucun administrateur puisse le voir — la page ne liste que les lignes
+    // existantes. Un plafond jamais décidé ne doit pas s'appliquer.
+    const r = await service.reglage(FeatureQuota.KETSIA_AI, 'senegal');
+    expect(r.estActif).toBe(false);
+    expect(r.limite).toBe(1);
+  });
+
+  it('crée les réglages manquants quand l’administration ouvre la page', async () => {
+    await service.reglages('senegal');
+    expect(configurations.save).toHaveBeenCalled();
+    const crees = configurations.save.mock.calls[0][0];
+    expect(crees).toHaveLength(2);
+    // Désactivés : la page doit être réglable, pas active d'office.
+    expect(crees.every((c: any) => c.est_actif === false)).toBe(true);
+    expect(crees.map((c: any) => c.feature).sort()).toEqual(['KETSIA_AI', 'RESOURCE_VIEW']);
+  });
+
+  it('ne recrée rien quand les réglages existent déjà', async () => {
+    configurations.find.mockResolvedValue([
+      { feature: FeatureQuota.RESOURCE_VIEW }, { feature: FeatureQuota.KETSIA_AI },
+    ]);
+    await service.reglages('senegal');
+    expect(configurations.save).not.toHaveBeenCalled();
+  });
+
+  it('respecte un réglage explicitement actif', async () => {
+    configurations.findOne.mockResolvedValue({
+      limite: 3, periode_reset: 'MENSUEL', est_actif: true,
+    });
+    const r = await service.reglage(FeatureQuota.RESOURCE_VIEW, 'congo');
+    expect(r).toMatchObject({ limite: 3, estActif: true });
+  });
+});
+
 describe('EntitlementService — quotas', () => {
   let abonnements: any, utilisateurs: any, config: any, quotas: QuotaService, profils: any, verrou: any, service: EntitlementService;
 

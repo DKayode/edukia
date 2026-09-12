@@ -54,11 +54,23 @@ export class QuotaService {
     return `${maintenant.getUTCFullYear()}-${mois}`;
   }
 
-  /** Réglage en vigueur, avec repli sur les valeurs par défaut. */
+  /**
+   * Réglage en vigueur, avec repli sur les valeurs par défaut.
+   *
+   * Le repli est INACTIF, et c'est important. Il valait `true` jusqu'ici, ce qui
+   * était sans effet tant que le verrou d'abonnement était éteint. Le verrou
+   * étant désormais actif, un pays sans ligne de configuration se retrouvait
+   * plafonné pour de bon — et sans qu'un administrateur puisse le voir ni le
+   * changer, la page ne listant que les lignes existantes. Constaté en
+   * production : Ketsia était limitée à 1/mois au Sénégal et au Congo, illimitée
+   * au Bénin, pour cette seule raison.
+   *
+   * Un plafond qui n'a jamais été décidé ne doit pas s'appliquer.
+   */
   async reglage(feature: FeatureQuota, pays = 'benin'): Promise<ReglageQuota> {
     const config = await this.configurations.findOne({ where: { pays, feature } });
     if (!config) {
-      return { limite: QUOTA_DEFAUT[feature], periodeReset: PeriodeReset.MENSUEL, estActif: true };
+      return { limite: QUOTA_DEFAUT[feature], periodeReset: PeriodeReset.MENSUEL, estActif: false };
     }
     return {
       limite: config.limite,
@@ -67,7 +79,35 @@ export class QuotaService {
     };
   }
 
+  /**
+   * Les réglages d'un pays, pour la page d'administration.
+   *
+   * Les lignes manquantes sont créées, désactivées, plutôt que de renvoyer une
+   * liste vide : sans elles la page n'affichait rien à régler pour tout pays
+   * autre que celui semé par la migration. Écrire depuis une lecture n'est pas
+   * élégant, mais c'est une route d'administration, l'opération est idempotente,
+   * et l'alternative — une migration par pays ajouté — se serait oubliée au
+   * premier pays suivant.
+   */
   async reglages(pays = 'benin'): Promise<ConfigurationQuota[]> {
+    const existantes = await this.configurations.find({ where: { pays } });
+    const manquantes = Object.values(FeatureQuota).filter(
+      (f) => !existantes.some((c) => c.feature === f),
+    );
+    if (manquantes.length) {
+      this.logger.log(`Création des réglages de quota manquants pour ${pays} : ${manquantes.join(', ')}`);
+      await this.configurations.save(
+        manquantes.map((feature) =>
+          this.configurations.create({
+            pays,
+            feature,
+            limite: QUOTA_DEFAUT[feature],
+            periode_reset: PeriodeReset.MENSUEL,
+            est_actif: false,
+          }),
+        ),
+      );
+    }
     return this.configurations.find({ where: { pays }, order: { feature: 'ASC' } });
   }
 
