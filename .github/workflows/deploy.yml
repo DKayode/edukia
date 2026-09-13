@@ -310,34 +310,10 @@ jobs:
             # automatiquement au deploy ; ce bloc idempotent empêche un backend
             # neuf de démarrer sur un schéma trop ancien.
             timeout 180 docker run --rm postgres:16-alpine \
-              psql "$DB_URL" -v ON_ERROR_STOP=1 <<'SQL'
-            ALTER TABLE public.paiements
-              ADD COLUMN IF NOT EXISTS mode varchar(20) NOT NULL DEFAULT 'sandbox';
-
-            DO $$ BEGIN
-              IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_paiements_mode') THEN
-                ALTER TABLE public.paiements ADD CONSTRAINT chk_paiements_mode
-                  CHECK (mode IN ('sandbox','live'));
-              END IF;
-            END $$;
-
-            ALTER TABLE public.configurations_paiement
-              ADD COLUMN IF NOT EXISTS mode varchar(20) NOT NULL DEFAULT 'sandbox';
-
-            WITH doublons AS (
-              SELECT id, ROW_NUMBER() OVER (
-                PARTITION BY pays, prestataire, mode
-                ORDER BY est_actif DESC, date_modification DESC, id DESC
-              ) AS rn
-              FROM public.configurations_paiement
-            )
-            DELETE FROM public.configurations_paiement c
-            USING doublons d
-            WHERE c.id = d.id AND d.rn > 1;
-
-            CREATE UNIQUE INDEX IF NOT EXISTS uq_config_paiement_pays_prestataire_mode
-              ON public.configurations_paiement(pays, prestataire, mode);
-            SQL
+              psql "$DB_URL" -v ON_ERROR_STOP=1 \
+              -c "ALTER TABLE public.paiements ADD COLUMN IF NOT EXISTS mode varchar(20) NOT NULL DEFAULT 'sandbox';" \
+              -c "ALTER TABLE public.configurations_paiement ADD COLUMN IF NOT EXISTS mode varchar(20) NOT NULL DEFAULT 'sandbox';" \
+              -c "SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='paiements' AND column_name='mode';"
 
             # Démarrer la pile (nginx avec dummy cert si nécessaire).
             timeout 300 $COMPOSE up -d --remove-orphans </dev/null >/dev/null 2>&1
