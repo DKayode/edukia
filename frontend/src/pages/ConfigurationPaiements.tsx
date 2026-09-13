@@ -11,13 +11,14 @@ import { useToast } from "@/hooks/use-toast";
 import {
   ConfigurationPaiement,
   ConfigurationPaiementUpdate,
+  ModePaiement,
   paiementsAdminService,
   PrestatairePaiement,
 } from "@/lib/services/paiements-admin.service";
 
 type Draft = {
   prestataire: PrestatairePaiement;
-  mode: "sandbox" | "live";
+  mode: ModePaiement;
   devise: string;
   montant_min: string;
   montant_max: string;
@@ -29,19 +30,26 @@ const PROVIDERS: Record<PrestatairePaiement, { label: string; fields: { key: str
   KKIAPAY: {
     label: "KKiaPay",
     fields: [
+      { key: "api_base_url", label: "URL API" },
       { key: "public_key", label: "Clé publique" },
       { key: "private_key", label: "Clé privée" },
-      { key: "webhook_secret", label: "Secret webhook" },
+      { key: "secret", label: "Secret" },
     ],
   },
   FEDAPAY: {
     label: "FedaPay",
     fields: [
+      { key: "api_base_url", label: "URL API" },
       { key: "secret_key", label: "Clé secrète" },
       { key: "webhook_secret", label: "Secret webhook" },
     ],
   },
 };
+
+const MODES: { value: ModePaiement; label: string }[] = [
+  { value: "sandbox", label: "Sandbox" },
+  { value: "live", label: "Live" },
+];
 
 const emptyDraft = (prestataire: PrestatairePaiement): Draft => ({
   prestataire,
@@ -57,6 +65,7 @@ export default function ConfigurationPaiements() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [selected, setSelected] = useState<PrestatairePaiement>("KKIAPAY");
+  const [selectedMode, setSelectedMode] = useState<ModePaiement>("sandbox");
   const [draft, setDraft] = useState<Draft>(emptyDraft("KKIAPAY"));
 
   const query = useQuery({
@@ -65,14 +74,14 @@ export default function ConfigurationPaiements() {
   });
 
   const current = useMemo(
-    () => query.data?.find((item) => item.prestataire === selected),
-    [query.data, selected],
+    () => query.data?.find((item) => item.prestataire === selected && item.mode === selectedMode),
+    [query.data, selected, selectedMode],
   );
 
   useEffect(() => {
-    const next = current ? fromConfig(current) : emptyDraft(selected);
+    const next = current ? fromConfig(current) : { ...emptyDraft(selected), mode: selectedMode };
     setDraft(next);
-  }, [current, selected]);
+  }, [current, selected, selectedMode]);
 
   const mutation = useMutation({
     mutationFn: (payload: ConfigurationPaiementUpdate) => paiementsAdminService.saveConfiguration(payload),
@@ -89,7 +98,7 @@ export default function ConfigurationPaiements() {
     );
     mutation.mutate({
       prestataire: draft.prestataire,
-      mode: draft.mode,
+      mode: selectedMode,
       devise: draft.devise,
       montant_min: draft.montant_min === "" ? null : Number(draft.montant_min),
       montant_max: draft.montant_max === "" ? null : Number(draft.montant_max),
@@ -126,20 +135,34 @@ export default function ConfigurationPaiements() {
         <div className="grid gap-6 lg:grid-cols-[260px_1fr]">
           <div className="space-y-2">
             {(Object.keys(PROVIDERS) as PrestatairePaiement[]).map((provider) => {
-              const config = query.data?.find((item) => item.prestataire === provider);
+              const activeConfig = query.data?.find((item) => item.prestataire === provider && item.est_actif);
               return (
-                <button
-                  key={provider}
-                  type="button"
-                  onClick={() => setSelected(provider)}
-                  className={`w-full rounded-lg border p-4 text-left transition-colors ${selected === provider ? "border-primary bg-primary/5" : "hover:bg-muted/50"}`}
-                >
+                <div key={provider} className={`rounded-lg border p-3 transition-colors ${selected === provider ? "border-primary bg-primary/5" : "bg-background"}`}>
                   <div className="flex items-center justify-between gap-3">
                     <p className="font-medium">{PROVIDERS[provider].label}</p>
-                    {config?.est_actif && <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700">Actif</span>}
+                    {activeConfig && <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700">Actif {activeConfig.mode}</span>}
                   </div>
-                  <p className="mt-1 text-xs text-muted-foreground">{config?.mode ?? "sandbox"} · {config?.devise ?? "XOF"}</p>
-                </button>
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    {MODES.map((mode) => {
+                      const modeConfig = query.data?.find((item) => item.prestataire === provider && item.mode === mode.value);
+                      const isSelected = selected === provider && selectedMode === mode.value;
+                      return (
+                        <button
+                          key={mode.value}
+                          type="button"
+                          onClick={() => {
+                            setSelected(provider);
+                            setSelectedMode(mode.value);
+                          }}
+                          className={`rounded-md border px-3 py-2 text-xs font-medium transition-colors ${isSelected ? "border-primary bg-primary text-primary-foreground" : "bg-background hover:bg-muted/60"}`}
+                        >
+                          <span>{mode.label}</span>
+                          <span className="mt-1 block font-normal opacity-80">{modeConfig?.devise ?? "XOF"}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
               );
             })}
           </div>
@@ -153,7 +176,14 @@ export default function ConfigurationPaiements() {
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-1.5">
                   <Label>Mode</Label>
-                  <Select value={draft.mode} onValueChange={(mode: "sandbox" | "live") => setDraft((d) => ({ ...d, mode }))}>
+                  <Select
+                    value={selectedMode}
+                    onValueChange={(mode) => {
+                      const nextMode = mode as ModePaiement;
+                      setSelectedMode(nextMode);
+                      setDraft((d) => ({ ...d, mode: nextMode }));
+                    }}
+                  >
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="sandbox">Sandbox</SelectItem>

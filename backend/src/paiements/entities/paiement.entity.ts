@@ -1,5 +1,5 @@
 import { Column, CreateDateColumn, Entity, Index, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
-import { MethodePaiement, PrestatairePaiement, StatutPaiement } from '../shared/paiement.enums';
+import { MethodePaiement, ModePaiement, PrestatairePaiement, StatutPaiement } from '../shared/paiement.enums';
 
 @Entity('paiements')
 @Index(['utilisateur_id'])
@@ -33,6 +33,9 @@ export class Paiement {
 
   @Column({ type: 'varchar', length: 30 })
   prestataire: PrestatairePaiement;
+
+  @Column({ type: 'varchar', length: 20, default: ModePaiement.SANDBOX })
+  mode: ModePaiement;
 
   @Column({ type: 'varchar', length: 30, nullable: true })
   methode: MethodePaiement | null;

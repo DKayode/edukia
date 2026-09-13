@@ -1,4 +1,5 @@
 import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException, ServiceUnavailableException, UnauthorizedException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
@@ -32,6 +33,10 @@ const RANG_STATUT: Record<StatutPaiement, number> = {
   [StatutPaiement.REUSSI]: 3,
   [StatutPaiement.REMBOURSE]: 4,
 };
+const PRESTATAIRES_PUBLICS: Partial<Record<PrestatairePaiement, string>> = {
+  [PrestatairePaiement.KKIAPAY]: 'KKiaPay',
+  [PrestatairePaiement.FEDAPAY]: 'FedaPay',
+};
 
 @Injectable()
 export class PaiementsService {
@@ -47,7 +52,35 @@ export class PaiementsService {
     private readonly abonnementsService: AbonnementsService,
     private readonly credentials: PaiementCredentialsService,
     private readonly dataSource: DataSource,
+    private readonly config: ConfigService,
   ) {}
+
+  async prestatairesDisponibles(pays: string) {
+    const configurations = await this.configurations.find({
+      where: { pays, est_actif: true },
+      order: { prestataire: 'ASC', mode: 'ASC' },
+    });
+    const disponibles = configurations.length > 0
+      ? configurations
+      : this.configurationEnvParDefaut(pays).map((config) => this.configurations.create(config));
+
+    return {
+      pays,
+      prestataires: disponibles.flatMap((configuration) => {
+        const libelle = PRESTATAIRES_PUBLICS[configuration.prestataire];
+        if (!libelle) return [];
+        return [{
+          pays: configuration.pays,
+          prestataire: configuration.prestataire,
+          libelle,
+          mode: configuration.mode,
+          devise: configuration.devise,
+          montant_min: configuration.montant_min,
+          montant_max: configuration.montant_max,
+        }];
+      }),
+    };
+  }
 
   async initier(pays: string, utilisateurId: number, dto: InitierPaiementDto) {
     const abonnement = await this.abonnements.findOne({ where: { uuid: dto.abonnement_uuid, utilisateur_id: utilisateurId, pays } });
@@ -75,6 +108,7 @@ export class PaiementsService {
       montant,
       devise: config.devise,
       prestataire: config.prestataire,
+      mode: config.mode,
       methode: dto.methode ?? MethodePaiement.MOBILE_MONEY,
       statut: StatutPaiement.INITIE,
       date_expiration: expiration,
@@ -84,6 +118,7 @@ export class PaiementsService {
     const retour = `${process.env.FRONTEND_URL ?? ''}/abonnements?paiement=${paiement.uuid}`;
     const resultat = await provider.initier({
       reference,
+      mode: config.mode,
       montant,
       devise: config.devise,
       client: {
@@ -98,7 +133,7 @@ export class PaiementsService {
     });
 
     paiement.statut = StatutPaiement.EN_ATTENTE;
-    paiement.reference_prestataire = resultat.referencePrestataire;
+    paiement.reference_prestataire = resultat.referencePrestataire ?? null;
     paiement.url_paiement = resultat.urlPaiement ?? null;
     paiement.token_client = resultat.tokenClient ?? null;
     paiement.payload_initiation = resultat.payload as any;
@@ -111,6 +146,25 @@ export class PaiementsService {
     const paiement = await this.paiements.findOne({ where: { uuid, pays, utilisateur_id: utilisateurId } });
     if (!paiement) throw new NotFoundException('Paiement introuvable');
     return paiement;
+  }
+
+  async confirmerTransactionMobile(pays: string, utilisateurId: number, uuid: string, dto: { reference_prestataire: string }) {
+    const paiement = await this.paiements.findOne({ where: { uuid, pays, utilisateur_id: utilisateurId } });
+    if (!paiement) throw new NotFoundException('Paiement introuvable');
+    if (STATUTS_FINAUX.has(paiement.statut)) return paiement;
+
+    paiement.reference_prestataire = dto.reference_prestataire;
+    await this.paiements.save(paiement);
+
+    const config = await this.configurationPourPaiement(paiement);
+    const provider = this.providers.get(paiement.prestataire);
+    const statut = await provider.verifierStatut(
+      dto.reference_prestataire,
+      this.credentials.decrypt(config?.credentials_chiffres),
+      paiement.mode,
+    );
+    await this.appliquerStatutVerifie(paiement, statut.statut, statut.montant, { mobile: true, reference_prestataire: dto.reference_prestataire });
+    return this.findOne(pays, utilisateurId, uuid);
   }
 
   async mesPaiements(pays: string, utilisateurId: number, pagination: PaginationDto) {
@@ -137,8 +191,11 @@ export class PaiementsService {
   }
 
   async adminConfigurations(pays: string) {
-    const configs = await this.configurations.find({ where: { pays }, order: { prestataire: 'ASC' } });
-    return configs.map((config) => this.configurationPublique(config));
+    const configs = await this.configurations.find({ where: { pays }, order: { prestataire: 'ASC', mode: 'ASC' } });
+    const visibles = configs.length > 0
+      ? configs
+      : this.configurationEnvParDefaut(pays).map((config) => this.configurations.create(config));
+    return visibles.map((config) => this.configurationPublique(config));
   }
 
   async configurerPrestataire(
@@ -147,18 +204,19 @@ export class PaiementsService {
       prestataire: PrestatairePaiement;
       mode?: ModePaiement;
       devise?: string;
-      montant_min?: number;
-      montant_max?: number;
+      montant_min?: number | null;
+      montant_max?: number | null;
       est_actif?: boolean;
       credentials?: Record<string, string>;
     },
   ) {
-    const existante = await this.configurations.findOne({ where: { pays, prestataire: dto.prestataire } });
-    const config = existante ?? this.configurations.create({ pays, prestataire: dto.prestataire });
+    const mode = dto.mode ?? ModePaiement.SANDBOX;
+    const existante = await this.configurations.findOne({ where: { pays, prestataire: dto.prestataire, mode } });
+    const config = existante ?? this.configurations.create({ pays, prestataire: dto.prestataire, mode });
     config.mode = dto.mode ?? config.mode ?? ModePaiement.SANDBOX;
     config.devise = dto.devise ?? config.devise ?? 'XOF';
-    config.montant_min = dto.montant_min ?? config.montant_min ?? null;
-    config.montant_max = dto.montant_max ?? config.montant_max ?? null;
+    config.montant_min = dto.montant_min !== undefined ? dto.montant_min : config.montant_min ?? null;
+    config.montant_max = dto.montant_max !== undefined ? dto.montant_max : config.montant_max ?? null;
     config.est_actif = dto.est_actif ?? config.est_actif ?? false;
 
     if (dto.credentials && Object.keys(dto.credentials).length > 0) {
@@ -202,9 +260,9 @@ export class PaiementsService {
     const paiement = await this.paiementAdmin(pays, uuid);
     if (!paiement.reference_prestataire) throw new BadRequestException('Aucune référence prestataire à resynchroniser');
     if (paiement.statut === StatutPaiement.REMBOURSE) return paiement;
-    const config = await this.configurations.findOne({ where: { pays, prestataire: paiement.prestataire } });
+    const config = await this.configurationPourPaiement(paiement);
     const provider = this.providers.get(paiement.prestataire);
-    const statut = await provider.verifierStatut(paiement.reference_prestataire, this.credentials.decrypt(config?.credentials_chiffres));
+    const statut = await provider.verifierStatut(paiement.reference_prestataire, this.credentials.decrypt(config?.credentials_chiffres), paiement.mode);
     await this.appliquerStatutVerifie(paiement, statut.statut, statut.montant, { resynchronisation: true });
     return this.paiementAdmin(pays, uuid);
   }
@@ -275,17 +333,16 @@ export class PaiementsService {
   async traiterWebhook(webhookId: number, prestataire: PrestatairePaiement, payload: unknown) {
     const provider = this.providers.get(prestataire);
     const evt = provider.parserWebhook(payload);
-    const paiement = await this.paiements.findOne({
-      where: evt.referencePrestataire
-        ? { prestataire, reference_prestataire: evt.referencePrestataire }
-        : { prestataire, reference: evt.reference },
-    });
+    const paiement = evt.referencePrestataire
+      ? await this.paiements.findOne({ where: { prestataire, reference_prestataire: evt.referencePrestataire } })
+        ?? (evt.reference ? await this.paiements.findOne({ where: { prestataire, reference: evt.reference } }) : null)
+      : await this.paiements.findOne({ where: { prestataire, reference: evt.reference } });
     if (!paiement) throw new NotFoundException('Paiement introuvable');
     if (STATUTS_FINAUX.has(paiement.statut)) return;
 
-    const config = await this.configurations.findOne({ where: { pays: paiement.pays, prestataire: paiement.prestataire } });
+    const config = await this.configurationPourPaiement(paiement);
     const statutVerifie = paiement.reference_prestataire
-      ? await provider.verifierStatut(paiement.reference_prestataire, this.credentials.decrypt(config?.credentials_chiffres))
+      ? await provider.verifierStatut(paiement.reference_prestataire, this.credentials.decrypt(config?.credentials_chiffres), paiement.mode)
       : { statut: evt.statut, montant: evt.montant, devise: evt.devise };
     paiement.methode = evt.methode ?? paiement.methode;
     await this.appliquerStatutVerifie(paiement, statutVerifie.statut, statutVerifie.montant, payload as any);
@@ -310,9 +367,9 @@ export class PaiementsService {
           continue;
         }
         if (!paiement.reference_prestataire) continue;
-        const config = await this.configurations.findOne({ where: { pays: paiement.pays, prestataire: paiement.prestataire } });
+        const config = await this.configurationPourPaiement(paiement);
         const provider = this.providers.get(paiement.prestataire);
-        const statut = await provider.verifierStatut(paiement.reference_prestataire, this.credentials.decrypt(config?.credentials_chiffres));
+        const statut = await provider.verifierStatut(paiement.reference_prestataire, this.credentials.decrypt(config?.credentials_chiffres), paiement.mode);
         if (statut.statut !== StatutPaiement.EN_ATTENTE) {
           await this.appliquerStatutVerifie(paiement, statut.statut, statut.montant, { reconciliation: true });
           traites++;
@@ -327,18 +384,63 @@ export class PaiementsService {
   private async configurationActive(pays: string, prestataire?: PrestatairePaiement): Promise<ConfigurationPaiement> {
     const where = prestataire ? { pays, prestataire, est_actif: true } : { pays, est_actif: true };
     const config = await this.configurations.findOne({ where });
-    if (!config) {
-      throw new ServiceUnavailableException({
-        code: 'PAIEMENT_INDISPONIBLE',
-        message: 'Le paiement en ligne est temporairement indisponible',
-      });
-    }
-    return config;
+    if (config) return config;
+
+    const envConfig = this.configurationEnvParDefaut(pays, prestataire)[0];
+    if (envConfig) return this.configurations.create(envConfig);
+
+    throw new ServiceUnavailableException({
+      code: 'PAIEMENT_INDISPONIBLE',
+      message: 'Le paiement en ligne est temporairement indisponible',
+    });
   }
 
   private verifierPlafonds(config: ConfigurationPaiement, montant: number) {
     if (config.montant_min != null && montant < config.montant_min) throw new BadRequestException('Montant inférieur au minimum autorisé');
     if (config.montant_max != null && montant > config.montant_max) throw new BadRequestException('Montant supérieur au maximum autorisé');
+  }
+
+  private async configurationPourPaiement(paiement: Paiement): Promise<ConfigurationPaiement | null> {
+    const config = await this.configurations.findOne({
+      where: {
+        pays: paiement.pays,
+        prestataire: paiement.prestataire,
+        mode: paiement.mode ?? ModePaiement.SANDBOX,
+      },
+    });
+    if (config) return config;
+    const envConfig = this.configurationEnvParDefaut(paiement.pays, paiement.prestataire, paiement.mode)[0];
+    return envConfig ? this.configurations.create(envConfig) : null;
+  }
+
+  private configurationEnvParDefaut(
+    pays: string,
+    prestataire?: PrestatairePaiement,
+    mode?: ModePaiement,
+  ): Partial<ConfigurationPaiement>[] {
+    const prestataireDefaut = this.config.get<string>('PAIEMENT_PRESTATAIRE_DEFAUT', 'KKIAPAY') as PrestatairePaiement;
+    if (prestataire && prestataire !== PrestatairePaiement.KKIAPAY) return [];
+    if (!prestataire && prestataireDefaut !== PrestatairePaiement.KKIAPAY) return [];
+
+    const publicKey = this.config.get<string>('KKIAPAY_PUBLIC_KEY');
+    const privateKey = this.config.get<string>('KKIAPAY_PRIVATE_KEY');
+    if (!publicKey || !privateKey) return [];
+
+    const modeDefaut = mode ?? (this.config.get<string>('PAIEMENT_MODE', ModePaiement.SANDBOX) as ModePaiement);
+    return [{
+      pays,
+      prestataire: PrestatairePaiement.KKIAPAY,
+      mode: modeDefaut,
+      devise: this.config.get<string>('PAIEMENT_DEVISE_DEFAUT', 'XOF'),
+      montant_min: null,
+      montant_max: null,
+      est_actif: true,
+      credentials_chiffres: null,
+      credentials_masquees: {
+        public_key: this.credentials.mask({ public_key: publicKey }).public_key,
+        private_key: this.credentials.mask({ private_key: privateKey }).private_key,
+      },
+    }];
   }
 
   private configurationPublique(config: ConfigurationPaiement) {

@@ -1,7 +1,8 @@
-import { MethodePaiement, PrestatairePaiement, StatutPaiement } from './paiement.enums';
+import { MethodePaiement, ModePaiement, PrestatairePaiement, StatutPaiement } from './paiement.enums';
 
 export interface InitierPaiementCommande {
   reference: string;
+  mode: ModePaiement;
   montant: number;
   devise: string;
   client: { nom: string; email: string; telephone?: string };
@@ -12,7 +13,7 @@ export interface InitierPaiementCommande {
 }
 
 export interface ResultatInitiationPaiement {
-  referencePrestataire: string;
+  referencePrestataire?: string;
   urlPaiement?: string;
   tokenClient?: string;
   payload?: unknown;
@@ -33,5 +34,5 @@ export interface PaiementProviderPort {
   initier(cmd: InitierPaiementCommande): Promise<ResultatInitiationPaiement>;
   verifierSignature(rawBody: Buffer, headers: Record<string, string | string[] | undefined>, credentials?: Record<string, string>): boolean;
   parserWebhook(payload: unknown): EvenementPaiementParse;
-  verifierStatut(referencePrestataire: string, credentials?: Record<string, string>): Promise<{ statut: StatutPaiement; montant: number; devise?: string }>;
+  verifierStatut(referencePrestataire: string, credentials?: Record<string, string>, mode?: ModePaiement): Promise<{ statut: StatutPaiement; montant: number; devise?: string }>;
 }

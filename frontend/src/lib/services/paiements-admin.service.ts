@@ -19,7 +19,7 @@ export interface ConfigurationPaiement {
 
 export interface ConfigurationPaiementUpdate {
   prestataire: PrestatairePaiement;
-  mode?: ModePaiement;
+  mode: ModePaiement;
   devise?: string;
   montant_min?: number | null;
   montant_max?: number | null;
