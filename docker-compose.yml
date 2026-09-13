@@ -35,6 +35,12 @@ services:
       # Comme ce service ne déclare pas env_file, l'oublier ici suffirait à
       # rendre la variable sans effet malgré sa présence dans .env.
       ABONNEMENTS_VERROU_ACTIF: ${ABONNEMENTS_VERROU_ACTIF:-false}
+      # Incoming subscription payments. Credentials are stored encrypted in DB
+      # from the admin dashboard; these values only control defaults/callbacks.
+      PAIEMENT_PRESTATAIRE_DEFAUT: ${PAIEMENT_PRESTATAIRE_DEFAUT:-KKIAPAY}
+      PAIEMENT_MODE: ${PAIEMENT_MODE:-sandbox}
+      PAIEMENT_WEBHOOK_BASE_URL: ${PAIEMENT_WEBHOOK_BASE_URL:-https://api.educ-prime.com}
+      PAIEMENT_DEVISE_DEFAUT: ${PAIEMENT_DEVISE_DEFAUT:-XOF}
       # Email
       SMTP_HOST: ${SMTP_HOST}
       SMTP_PORT: ${SMTP_PORT}

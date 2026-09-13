@@ -214,6 +214,13 @@ jobs:
             # aussi figurer dans le bloc environment de docker-compose.yml, le
             # service backend ne lisant pas .env directement.
             ABONNEMENTS_VERROU_ACTIF=true
+            # Paiements entrants. Les clés prestataires se gèrent dans le
+            # dashboard et sont chiffrées en base ; ces valeurs pilotent les
+            # defaults serveur et les callbacks publics.
+            PAIEMENT_PRESTATAIRE_DEFAUT=KKIAPAY
+            PAIEMENT_MODE=sandbox
+            PAIEMENT_WEBHOOK_BASE_URL=https://api.educ-prime.com
+            PAIEMENT_DEVISE_DEFAUT=XOF
             ENV_EOF
 
             # Créer le fichier docker-compose.yml depuis le contenu du repo
@@ -295,6 +302,40 @@ jobs:
 
             # Pull les dernières images (le plus lent — large timeout).
             timeout 900 $COMPOSE pull backend frontend redis </dev/null
+
+            # Migrations minimales requises par les paiements entrants. Le repo
+            # SQL canonique reste edukia-db, mais la prod ne lance pas ce repo
+            # automatiquement au deploy ; ce bloc idempotent empêche un backend
+            # neuf de démarrer sur un schéma trop ancien.
+            timeout 180 docker run --rm postgres:16-alpine \
+              psql "${DATABASE_URL}" -v ON_ERROR_STOP=1 <<'SQL'
+            ALTER TABLE public.paiements
+              ADD COLUMN IF NOT EXISTS mode varchar(20) NOT NULL DEFAULT 'sandbox';
+
+            DO $$ BEGIN
+              IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_paiements_mode') THEN
+                ALTER TABLE public.paiements ADD CONSTRAINT chk_paiements_mode
+                  CHECK (mode IN ('sandbox','live'));
+              END IF;
+            END $$;
+
+            ALTER TABLE public.configurations_paiement
+              ADD COLUMN IF NOT EXISTS mode varchar(20) NOT NULL DEFAULT 'sandbox';
+
+            WITH doublons AS (
+              SELECT id, ROW_NUMBER() OVER (
+                PARTITION BY pays, prestataire, mode
+                ORDER BY est_actif DESC, date_modification DESC, id DESC
+              ) AS rn
+              FROM public.configurations_paiement
+            )
+            DELETE FROM public.configurations_paiement c
+            USING doublons d
+            WHERE c.id = d.id AND d.rn > 1;
+
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_config_paiement_pays_prestataire_mode
+              ON public.configurations_paiement(pays, prestataire, mode);
+            SQL
 
             # Démarrer la pile (nginx avec dummy cert si nécessaire).
             timeout 300 $COMPOSE up -d --remove-orphans </dev/null >/dev/null 2>&1
