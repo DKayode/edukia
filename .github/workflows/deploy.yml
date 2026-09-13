@@ -303,12 +303,14 @@ jobs:
             # Pull les dernières images (le plus lent — large timeout).
             timeout 900 $COMPOSE pull backend frontend redis </dev/null
 
+            DB_URL="$(grep '^DATABASE_URL=' .env | cut -d= -f2-)"
+
             # Migrations minimales requises par les paiements entrants. Le repo
             # SQL canonique reste edukia-db, mais la prod ne lance pas ce repo
             # automatiquement au deploy ; ce bloc idempotent empêche un backend
             # neuf de démarrer sur un schéma trop ancien.
             timeout 180 docker run --rm postgres:16-alpine \
-              psql "${DATABASE_URL}" -v ON_ERROR_STOP=1 <<'SQL'
+              psql "$DB_URL" -v ON_ERROR_STOP=1 <<'SQL'
             ALTER TABLE public.paiements
               ADD COLUMN IF NOT EXISTS mode varchar(20) NOT NULL DEFAULT 'sandbox';
 
