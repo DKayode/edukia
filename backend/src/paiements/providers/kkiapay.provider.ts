@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import kkiapay from '@kkiapay-org/nodejs-sdk';
 import { BaseHttpPaiementProvider } from './base-http.provider';
 import { InitierPaiementCommande, PaiementProviderPort } from '../shared/paiement.ports';
 import { ModePaiement, PrestatairePaiement, StatutPaiement } from '../shared/paiement.enums';
@@ -67,13 +68,19 @@ export class KkiaPayProvider extends BaseHttpPaiementProvider implements Paiemen
   }
 
   async verifierStatut(referencePrestataire: string, credentials?: Record<string, string>, mode?: ModePaiement) {
-    const baseUrl = this.baseUrl(credentials, mode);
-    const reponse = await this.getJson(`${baseUrl}/api/v1/transactions/${referencePrestataire}`, {
-      'x-api-key': credentials?.public_key ?? this.config.get<string>('KKIAPAY_PUBLIC_KEY') ?? '',
-      'x-private-key': credentials?.private_key ?? this.config.get<string>('KKIAPAY_PRIVATE_KEY') ?? '',
+    const client = kkiapay({
+      publickey: credentials?.public_key ?? this.config.get<string>('KKIAPAY_PUBLIC_KEY') ?? '',
+      privatekey: credentials?.private_key ?? this.config.get<string>('KKIAPAY_PRIVATE_KEY') ?? '',
+      secretkey: credentials?.secret ?? credentials?.webhook_secret ?? this.config.get<string>('KKIAPAY_SECRET') ?? '',
+      sandbox: mode !== ModePaiement.LIVE,
     });
+    const reponse = await client.verify(referencePrestataire);
     const data = reponse?.data ?? reponse;
-    return { statut: this.statutDepuis(data?.status), montant: Number(data?.amount ?? 0), devise: data?.currency ?? 'XOF' };
+    return {
+      statut: this.statutDepuis(data?.status ?? data?.state),
+      montant: Number(data?.amount ?? data?.amountDebited ?? 0),
+      devise: data?.currency ?? data?.currencyCode ?? 'XOF',
+    };
   }
 
   private baseUrl(credentials?: Record<string, string>, mode?: ModePaiement): string {

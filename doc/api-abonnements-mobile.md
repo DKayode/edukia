@@ -193,7 +193,7 @@ Exemple de réponse KKiaPay pour Flutter :
       "amount": 2000,
       "currency": "XOF",
       "key": "PUBLIC_KEY_KKIAPAY",
-      "callback": "https://api.edukia.example/paiements/webhooks/kkiapay",
+      "callback": "https://educ-prime.com/abonnements?paiement=4d42f2ec-4f19-4ac2-9c8c-9d49d1c9c215",
       "reference": "EDK-1780000000000-26746-12",
       "metadata": {
         "paiementUuid": "4d42f2ec-4f19-4ac2-9c8c-9d49d1c9c215",
@@ -231,6 +231,8 @@ simplement cet arbre de décision sur la réponse de `POST /paiements/initier` :
    SDK ou le widget du prestataire avec ce token.
 3. Pour KKiaPay, lire `payload_initiation.widget` et lancer le SDK Flutter
    `kkiapay_flutter_sdk`. Ce SDK ouvre lui-même la WebView de paiement.
+   `widget.callback` doit être transmis au SDK quand il le demande, mais ce
+   n'est pas l'URL qui active l'abonnement.
 4. Après fermeture ou retour de la WebView, ne pas supposer que le paiement a
    réussi : appeler `GET /paiements/{uuid}` jusqu'à obtenir un statut final.
 5. Pour KKiaPay SDK, lorsque le callback Flutter renvoie `transactionId`,
@@ -303,6 +305,12 @@ Pour KKiaPay, `payload_initiation.widget` contient les champs publics à passer
 au SDK Flutter : `amount`, `currency`, `key`, `sandbox`, `callback`,
 `reference`, et les métadonnées. Les clés privées et secrets webhook restent
 uniquement côté backend.
+
+En production mobile, il ne faut pas ouvrir `widget.callback` comme une URL de
+paiement. KKiaPay est lancé par le SDK Flutter. Quand le SDK renvoie
+`transactionId`, l'application appelle `POST /paiements/{uuid}/transaction-prestataire`.
+Le backend vérifie ensuite la transaction auprès de KKiaPay avec les clés
+serveur et active l'abonnement.
 
 Exemple côté Flutter avec `kkiapay_flutter_sdk` :
 

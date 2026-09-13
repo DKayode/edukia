@@ -116,8 +116,12 @@ export class PaiementsService {
       date_expiration: expiration,
     }));
 
-    const baseUrl = process.env.PAIEMENT_WEBHOOK_BASE_URL ?? process.env.FRONTEND_URL ?? '';
-    const retour = `${process.env.FRONTEND_URL ?? ''}/abonnements?paiement=${paiement.uuid}`;
+    const frontendBaseUrl = this.baseUrlPublique(process.env.FRONTEND_URL, 'https://educ-prime.com');
+    const webhookBaseUrl = this.baseUrlPublique(
+      process.env.PAIEMENT_WEBHOOK_BASE_URL ?? process.env.API_PUBLIC_URL,
+      'https://api.educ-prime.com',
+    );
+    const retour = `${frontendBaseUrl}/abonnements?paiement=${paiement.uuid}`;
     const resultat = await provider.initier({
       reference,
       mode: config.mode,
@@ -129,7 +133,7 @@ export class PaiementsService {
         telephone: dto.telephone ?? utilisateur.telephone,
       },
       urlRetour: retour,
-      urlWebhook: `${baseUrl}/paiements/webhooks/${config.prestataire.toLowerCase()}`,
+      urlWebhook: `${webhookBaseUrl}/paiements/webhooks/${config.prestataire.toLowerCase()}`,
       metadata: { paiementUuid: paiement.uuid, abonnementUuid: abonnement.uuid },
       credentials: this.credentials.decrypt(config.credentials_chiffres),
     });
@@ -477,6 +481,11 @@ export class PaiementsService {
     const { credentials_chiffres, ...publique } = config;
     void credentials_chiffres;
     return publique;
+  }
+
+  private baseUrlPublique(valeur: string | undefined, fallback: string): string {
+    const baseUrl = (valeur || fallback).trim().replace(/\/+$/, '');
+    return baseUrl || fallback.replace(/\/+$/, '');
   }
 
   private async paiementAdmin(pays: string, uuid: string) {
