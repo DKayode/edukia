@@ -322,13 +322,72 @@ function SectionPopulation({ data }: { data: KpiResponse }) {
       />
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard label="Total inscrits" value={data.utilisateurs.total} icon={Users} accent="primary" />
-        <StatCard label="Âgés de 35 ans ou moins" value={data.utilisateurs.age_35_max} icon={Cake} accent="sky" base={data.utilisateurs.total} />
+        <StatCard
+          label="Professeurs / Enseignants"
+          value={data.utilisateurs.professeurs ?? 0}
+          icon={GraduationCap}
+          accent="sky"
+          base={data.utilisateurs.total}
+        />
+        <StatCard
+          label="Autres rôles"
+          value={data.utilisateurs.autres ?? 0}
+          icon={UserCircle}
+          accent="amber"
+          base={data.utilisateurs.total}
+        />
+        <StatCard label="Connectés sur la période" value={data.utilisateurs.connectes} icon={LogIn} accent="emerald" base={data.utilisateurs.total} baseLabel="taux de connexion" />
         <StatCard label="Femmes" value={data.utilisateurs.femmes} icon={UserCircle} accent="rose" base={data.utilisateurs.total} />
         <StatCard label="Femmes de 35 ans ou moins" value={data.utilisateurs.femmes_35_max} icon={UserCircle} accent="rose" base={data.utilisateurs.total} />
         <StatCard label="En zone rurale" value={data.utilisateurs.zone_rurale} icon={MapPin} accent="emerald" base={data.utilisateurs.total} />
         <StatCard label="En situation de handicap" value={data.utilisateurs.situation_handicap} icon={Accessibility} accent="amber" base={data.utilisateurs.total} />
-        <StatCard label="Connectés sur la période" value={data.utilisateurs.connectes} icon={LogIn} accent="emerald" base={data.utilisateurs.total} baseLabel="taux de connexion" />
       </div>
+
+      <Card className="shadow-sm">
+        <CardHeader className="flex flex-row items-center gap-3 space-y-0">
+          <div className="rounded-lg bg-sky-500/10 p-2 text-sky-600">
+            <Cake className="h-5 w-5" />
+          </div>
+          <div>
+            <CardTitle className="text-base">
+              Répartition par tranche d'âge — Utilisateurs
+            </CardTitle>
+            <CardDescription>
+              Toutes les tranches d'âge inscrites sur la période
+            </CardDescription>
+          </div>
+        </CardHeader>
+        <CardContent className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          {[
+            { label: "< 18 ans", value: data.utilisateurs.age_ranges?.moins_18 ?? 0 },
+            { label: "18 - 25 ans", value: data.utilisateurs.age_ranges?.de_18_25 ?? 0 },
+            { label: "26 - 35 ans", value: data.utilisateurs.age_ranges?.de_26_35 ?? 0 },
+            { label: "> 35 ans", value: data.utilisateurs.age_ranges?.plus_35 ?? 0 },
+          ].map((bucket) => {
+            const pct =
+              data.utilisateurs.total > 0
+                ? Math.min(100, Math.round((bucket.value / data.utilisateurs.total) * 100))
+                : null;
+            return (
+              <div key={bucket.label} className="rounded-lg border bg-muted/30 p-4">
+                <p className="text-sm font-medium text-muted-foreground">{bucket.label}</p>
+                <p className="mt-1.5 text-3xl font-bold tabular-nums text-card-foreground">
+                  {nf(bucket.value)}
+                </p>
+                {pct !== null && (
+                  <div className="mt-3 space-y-1.5">
+                    <div className="flex items-center justify-between text-xs text-muted-foreground">
+                      <span>des utilisateurs</span>
+                      <span className="font-semibold text-foreground">{pct}%</span>
+                    </div>
+                    <Progress value={pct} className="h-1.5" />
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </CardContent>
+      </Card>
     </section>
 
     {/* Section — Apprenants */}
@@ -347,6 +406,52 @@ function SectionPopulation({ data }: { data: KpiResponse }) {
         <StatCard label="En zone rurale" value={data.apprenants.zone_rurale} icon={MapPin} accent="emerald" base={data.apprenants.total} />
         <StatCard label="En situation de handicap" value={data.apprenants.situation_handicap} icon={Accessibility} accent="amber" base={data.apprenants.total} />
       </div>
+
+      <Card className="shadow-sm">
+        <CardHeader className="flex flex-row items-center gap-3 space-y-0">
+          <div className="rounded-lg bg-violet-500/10 p-2 text-violet-600">
+            <Cake className="h-5 w-5" />
+          </div>
+          <div>
+            <CardTitle className="text-base">
+              Répartition par tranche d'âge — Apprenants
+            </CardTitle>
+            <CardDescription>
+              Étudiants par tranche d'âge inscrits sur la période
+            </CardDescription>
+          </div>
+        </CardHeader>
+        <CardContent className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          {[
+            { label: "< 18 ans", value: data.apprenants.age_ranges?.moins_18 ?? 0 },
+            { label: "18 - 25 ans", value: data.apprenants.age_ranges?.de_18_25 ?? 0 },
+            { label: "26 - 35 ans", value: data.apprenants.age_ranges?.de_26_35 ?? 0 },
+            { label: "> 35 ans", value: data.apprenants.age_ranges?.plus_35 ?? 0 },
+          ].map((bucket) => {
+            const pct =
+              data.apprenants.total > 0
+                ? Math.min(100, Math.round((bucket.value / data.apprenants.total) * 100))
+                : null;
+            return (
+              <div key={bucket.label} className="rounded-lg border bg-muted/30 p-4">
+                <p className="text-sm font-medium text-muted-foreground">{bucket.label}</p>
+                <p className="mt-1.5 text-3xl font-bold tabular-nums text-card-foreground">
+                  {nf(bucket.value)}
+                </p>
+                {pct !== null && (
+                  <div className="mt-3 space-y-1.5">
+                    <div className="flex items-center justify-between text-xs text-muted-foreground">
+                      <span>des apprenants</span>
+                      <span className="font-semibold text-foreground">{pct}%</span>
+                    </div>
+                    <Progress value={pct} className="h-1.5" />
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </CardContent>
+      </Card>
     </section>
     </>
   );
@@ -365,6 +470,14 @@ function SectionEngagement({ data }: { data: KpiResponse }) {
       />
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
+          label="Apprenants actifs (30 j)"
+          value={data.engagement.apprenants_actifs ?? 0}
+          icon={Zap}
+          accent="amber"
+          base={data.apprenants.total}
+          baseLabel="des apprenants"
+        />
+        <StatCard
           label="Apprenants connectés sur la période"
           value={data.engagement.apprenants_connectes}
           icon={LogIn}
@@ -381,7 +494,7 @@ function SectionEngagement({ data }: { data: KpiResponse }) {
           </div>
           <div>
             <CardTitle className="text-base">
-              Apprenants ayant consulté une ressource
+              Apprenants ayant consulté une ressource académique
             </CardTitle>
             <CardDescription>
               Épreuve ou concours — apprenants distincts, fenêtres glissantes
@@ -456,6 +569,61 @@ function SectionAudience({ data }: { data: KpiResponse }) {
             sub="distincts, sans double compte"
           />
         </div>
+
+        {data.audience.opportunites && (
+          <Card className="shadow-sm">
+            <CardHeader className="flex flex-row items-center gap-3 space-y-0">
+              <div className="rounded-lg bg-sky-500/10 p-2 text-sky-600">
+                <Lightbulb className="h-5 w-5" />
+              </div>
+              <div>
+                <CardTitle className="text-base">
+                  Détail Opportunités : Bourses & Stages
+                </CardTitle>
+                <CardDescription>
+                  Consultations et utilisateurs uniques par sous-type d'opportunité
+                </CardDescription>
+              </div>
+            </CardHeader>
+            <CardContent className="grid gap-4 sm:grid-cols-2">
+              <div className="rounded-lg border bg-muted/30 p-4 space-y-2">
+                <p className="text-sm font-semibold text-foreground">Bourses</p>
+                <div className="flex items-baseline gap-4">
+                  <div>
+                    <p className="text-2xl font-bold tabular-nums text-card-foreground">
+                      {nf(data.audience.opportunites.bourses.vues)}
+                    </p>
+                    <p className="text-xs text-muted-foreground">consultations</p>
+                  </div>
+                  <div>
+                    <p className="text-2xl font-bold tabular-nums text-card-foreground">
+                      {nf(data.audience.opportunites.bourses.utilisateurs)}
+                    </p>
+                    <p className="text-xs text-muted-foreground">utilisateurs distincts</p>
+                  </div>
+                </div>
+              </div>
+              <div className="rounded-lg border bg-muted/30 p-4 space-y-2">
+                <p className="text-sm font-semibold text-foreground">Stages</p>
+                <div className="flex items-baseline gap-4">
+                  <div>
+                    <p className="text-2xl font-bold tabular-nums text-card-foreground">
+                      {nf(data.audience.opportunites.stages.vues)}
+                    </p>
+                    <p className="text-xs text-muted-foreground">consultations</p>
+                  </div>
+                  <div>
+                    <p className="text-2xl font-bold tabular-nums text-card-foreground">
+                      {nf(data.audience.opportunites.stages.utilisateurs)}
+                    </p>
+                    <p className="text-xs text-muted-foreground">utilisateurs distincts</p>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           {data.audience.modules.map((m) => (
             <CarteModule key={m.type} module={m} maxVues={maxVues} />
@@ -860,10 +1028,10 @@ export default function Indicateurs() {
             />
             <HeroTile
               label="Apprenants actifs"
-              value={data.engagement.apprenants_ressource.mois}
+              value={data.engagement.apprenants_actifs ?? 0}
               icon={Zap}
               accent="amber"
-              sub="ressource consultée · 30 j"
+              sub="connectés ou ressource · 30 j"
             />
           </div>
 

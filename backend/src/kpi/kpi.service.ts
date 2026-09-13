@@ -81,17 +81,27 @@ export class KpiService {
       `
       SELECT
         COUNT(*)                                                                                  AS total_users,
-        COUNT(*) FILTER (WHERE age_group IN ('< 18','18 - 25','26 - 35'))           AS users_age_35,
+        COUNT(*) FILTER (WHERE role = 'professeur')                                               AS teachers,
+        COUNT(*) FILTER (WHERE role = 'autre')                                                    AS others,
+        COUNT(*) FILTER (WHERE age_group = '< 18')                                                AS age_under_18,
+        COUNT(*) FILTER (WHERE age_group = '18 - 25')                                             AS age_18_25,
+        COUNT(*) FILTER (WHERE age_group = '26 - 35')                                             AS age_26_35,
+        COUNT(*) FILTER (WHERE age_group IN ('36 - 50', '> 50'))                                  AS age_over_35,
+        COUNT(*) FILTER (WHERE age_group IN ('< 18','18 - 25','26 - 35'))                         AS users_age_35,
         COUNT(*) FILTER (WHERE sexe = 'F')                                                         AS female_users,
-        COUNT(*) FILTER (WHERE sexe = 'F' AND age_group IN ('< 18','18 - 25','26 - 35')) AS female_age_35,
+        COUNT(*) FILTER (WHERE sexe = 'F' AND age_group IN ('< 18','18 - 25','26 - 35'))         AS female_age_35,
         COUNT(*) FILTER (WHERE zone_residence = 'rural')                                           AS rural_users,
-        COUNT(*) FILTER (WHERE situation_handicap IS TRUE)   AS disability_users,
+        COUNT(*) FILTER (WHERE situation_handicap IS TRUE)                                         AS disability_users,
         COUNT(*) FILTER (WHERE role = 'étudiant')                                                  AS learners,
-        COUNT(*) FILTER (WHERE role = 'étudiant' AND age_group IN ('< 18','18 - 25','26 - 35')) AS learners_age_35,
+        COUNT(*) FILTER (WHERE role = 'étudiant' AND age_group = '< 18')                          AS learners_age_under_18,
+        COUNT(*) FILTER (WHERE role = 'étudiant' AND age_group = '18 - 25')                       AS learners_age_18_25,
+        COUNT(*) FILTER (WHERE role = 'étudiant' AND age_group = '26 - 35')                       AS learners_age_26_35,
+        COUNT(*) FILTER (WHERE role = 'étudiant' AND age_group IN ('36 - 50', '> 50'))            AS learners_age_over_35,
+        COUNT(*) FILTER (WHERE role = 'étudiant' AND age_group IN ('< 18','18 - 25','26 - 35'))  AS learners_age_35,
         COUNT(*) FILTER (WHERE role = 'étudiant' AND sexe = 'F' AND age_group IN ('< 18','18 - 25','26 - 35')) AS learners_age_35_female,
         COUNT(*) FILTER (WHERE role = 'étudiant' AND sexe = 'F')                                   AS female_learners,
         COUNT(*) FILTER (WHERE role = 'étudiant' AND zone_residence = 'rural')                     AS rural_learners,
-        COUNT(*) FILTER (WHERE role = 'étudiant' AND situation_handicap IS TRUE) AS disability_learners
+        COUNT(*) FILTER (WHERE role = 'étudiant' AND situation_handicap IS TRUE)                  AS disability_learners
       FROM utilisateurs
       WHERE pays = $1
         AND date_creation >= ${lo}
@@ -131,6 +141,32 @@ export class KpiService {
       [pays, endDate, zone],
     );
 
+    const [activeLearners] = await this.dataSource.query(
+      `
+      SELECT COUNT(DISTINCT u.id)::int AS active_learners
+      FROM utilisateurs u
+      WHERE u.pays = $1
+        AND u.role = 'étudiant'
+        AND (
+          EXISTS (
+            SELECT 1
+            FROM login_events le
+            WHERE le.utilisateur_id = u.id
+              AND le.date_creation >= (${endUtc} - interval '30 days')
+              AND le.date_creation < ${endUtc}
+          )
+          OR EXISTS (
+            SELECT 1
+            FROM resource_access ra
+            WHERE ra.utilisateur_id = u.id
+              AND ra.accessed_at >= (${endUtc} - interval '30 days')
+              AND ra.accessed_at < ${endUtc}
+          )
+        )
+      `,
+      [pays, endDate, zone],
+    );
+
     const [audience, contenu, communaute, jobkia, croissance, journaux] = await Promise.all([
       this.audienceModules(pays, lo, hi, startDate, endDate, zone),
       this.offreContenu(pays, lo, hi, startDate, endDate, zone),
@@ -146,7 +182,15 @@ export class KpiService {
       // Section 2 — Utilisateurs (over the period, by date_creation)
       utilisateurs: {
         total: n(demographics.total_users),               // KPI 2
+        professeurs: n(demographics.teachers),
+        autres: n(demographics.others),
         age_35_max: n(demographics.users_age_35),          // KPI 3
+        age_ranges: {
+          moins_18: n(demographics.age_under_18),
+          de_18_25: n(demographics.age_18_25),
+          de_26_35: n(demographics.age_26_35),
+          plus_35: n(demographics.age_over_35),
+        },
         femmes: n(demographics.female_users),              // KPI 4
         femmes_35_max: n(demographics.female_age_35),      // KPI 5
         zone_rurale: n(demographics.rural_users),          // KPI 6
@@ -157,6 +201,12 @@ export class KpiService {
       apprenants: {
         total: n(demographics.learners),                   // KPI 9
         age_35_max: n(demographics.learners_age_35),       // KPI 10
+        age_ranges: {
+          moins_18: n(demographics.learners_age_under_18),
+          de_18_25: n(demographics.learners_age_18_25),
+          de_26_35: n(demographics.learners_age_26_35),
+          plus_35: n(demographics.learners_age_over_35),
+        },
         age_35_max_femmes: n(demographics.learners_age_35_female), // KPI 11
         femmes: n(demographics.female_learners),           // KPI 12
         zone_rurale: n(demographics.rural_learners),       // KPI 13
@@ -164,6 +214,7 @@ export class KpiService {
       },
       // Section 4 — Engagement
       engagement: {
+        apprenants_actifs: n(activeLearners?.active_learners),
         apprenants_connectes: n(logins.learners_logged_in), // KPI 15
         apprenants_ressource: {                             // KPI 16
           semaine: n(access.last_week),
@@ -240,8 +291,41 @@ export class KpiService {
       }),
     );
 
+    const opportunitesParType = await this.dataSource.query(
+      `SELECT o.type,
+              COUNT(*)::int                          AS vues,
+              COUNT(DISTINCT ra.utilisateur_id)::int AS utilisateurs
+         FROM resource_access ra
+         JOIN opportunites o ON o.id = ra.resource_id
+        WHERE ra.pays = $1
+          AND ra.resource_type = 'opportunite'
+          AND ra.accessed_at >= ${lo}
+          AND ra.accessed_at <  ${hi}
+        GROUP BY o.type`,
+      [pays, startDate, endDate, zone],
+    );
+
+    const boursesRow = opportunitesParType.find(
+      (r: any) => String(r.type).toLowerCase() === 'bourses',
+    );
+    const stagesRow = opportunitesParType.find(
+      (r: any) => String(r.type).toLowerCase() === 'stages',
+    );
+
+    const opportunites = {
+      bourses: {
+        vues: Number(boursesRow?.vues ?? 0),
+        utilisateurs: Number(boursesRow?.utilisateurs ?? 0),
+      },
+      stages: {
+        vues: Number(stagesRow?.vues ?? 0),
+        utilisateurs: Number(stagesRow?.utilisateurs ?? 0),
+      },
+    };
+
     return {
       modules,
+      opportunites,
       total_vues: modules.reduce((n, m) => n + m.vues, 0),
       // Somme volontairement absente : additionner des « utilisateurs distincts »
       // par module compterait plusieurs fois qui a visité deux modules.

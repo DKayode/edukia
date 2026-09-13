@@ -22,14 +22,42 @@ describe('KpiService', () => {
 
   const LIGNES_PAR_DEFAUT = [
     { motif: 'pg_timezone_names', lignes: [{ zone: 'Africa/Porto-Novo' }] },
-    { motif: 'AS total_users', lignes: [{ total_users: 100, learners: 60, female_users: 40 }] },
+    { motif: 'AS total_users', lignes: [{
+      total_users: 100,
+      teachers: 15,
+      others: 25,
+      age_under_18: 10,
+      age_18_25: 30,
+      age_26_35: 40,
+      age_over_35: 20,
+      users_age_35: 80,
+      female_users: 40,
+      female_age_35: 30,
+      rural_users: 15,
+      disability_users: 5,
+      learners: 60,
+      learners_age_under_18: 10,
+      learners_age_18_25: 25,
+      learners_age_26_35: 20,
+      learners_age_over_35: 5,
+      learners_age_35: 55,
+      learners_age_35_female: 25,
+      female_learners: 28,
+      rural_learners: 10,
+      disability_learners: 3,
+    }] },
     { motif: 'AS users_logged_in', lignes: [{ users_logged_in: 20, learners_logged_in: 12 }] },
     { motif: 'AS last_week', lignes: [{ last_week: 5, last_two_weeks: 8, last_month: 11 }] },
+    { motif: 'AS active_learners', lignes: [{ active_learners: 14 }] },
     { motif: 'GROUP BY resource_type', lignes: [
       { resource_type: 'opportunite', vues: 30, utilisateurs: 12 },
       { resource_type: 'forum', vues: 4, utilisateurs: 3 },
     ]},
     { motif: 'ORDER BY vues DESC', lignes: [{ id: 58, titre: 'Bourse marocaine', vues: 18, utilisateurs: 9 }] },
+    { motif: 'GROUP BY o.type', lignes: [
+      { type: 'Bourses', vues: 18, utilisateurs: 9 },
+      { type: 'Stages', vues: 12, utilisateurs: 3 },
+    ]},
     { motif: 'AS n\n', lignes: [{ n: 14 }] },
     { motif: 'UNION ALL', lignes: [
       { type: 'opportunite', publies: 2, total: 35 },
@@ -69,6 +97,29 @@ describe('KpiService', () => {
       expect(d.engagement.apprenants_ressource).toEqual({ semaine: 5, deux_semaines: 8, mois: 11 });
       expect(d.periode).toEqual({ startDate: '2026-01-01', endDate: '2026-09-08' });
     });
+
+    it('expose les nouveaux indicateurs de population et tranches d’âge (#228)', async () => {
+      const d: any = await appel();
+      expect(d.utilisateurs.professeurs).toBe(15);
+      expect(d.utilisateurs.autres).toBe(25);
+      expect(d.utilisateurs.age_ranges).toEqual({
+        moins_18: 10,
+        de_18_25: 30,
+        de_26_35: 40,
+        plus_35: 20,
+      });
+      expect(d.apprenants.age_ranges).toEqual({
+        moins_18: 10,
+        de_18_25: 25,
+        de_26_35: 20,
+        plus_35: 5,
+      });
+    });
+
+    it('expose les apprenants actifs calculés sur 30 jours (#228)', async () => {
+      const d: any = await appel();
+      expect(d.engagement.apprenants_actifs).toBe(14);
+    });
   });
 
   describe('audience par module', () => {
@@ -100,6 +151,14 @@ describe('KpiService', () => {
       // 12 + 3 = 15, mais qui a visité deux modules ne compte qu'une fois : 14.
       expect(d.audience.utilisateurs_distincts).toBe(14);
       expect(d.audience.total_vues).toBe(34);
+    });
+
+    it('scinde l’audience des opportunités en bourses et stages (#228)', async () => {
+      const d: any = await appel();
+      expect(d.audience.opportunites).toEqual({
+        bourses: { vues: 18, utilisateurs: 9 },
+        stages: { vues: 12, utilisateurs: 3 },
+      });
     });
   });
 

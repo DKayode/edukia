@@ -1,5 +1,12 @@
 import { api } from '../api';
 
+export interface AgeRanges {
+  moins_18: number;
+  de_18_25: number;
+  de_26_35: number;
+  plus_35: number;
+}
+
 // Mirrors the backend GET /kpi payload (grouped by section). Country is
 // auto-appended by the api client (withCountryQuery) — don't add pays here.
 export interface KpiResponse {
@@ -7,7 +14,10 @@ export interface KpiResponse {
   periode: { startDate: string; endDate: string };
   utilisateurs: {
     total: number;              // KPI 2
+    professeurs: number;
+    autres: number;
     age_35_max: number;         // KPI 3
+    age_ranges: AgeRanges;
     femmes: number;             // KPI 4
     femmes_35_max: number;      // KPI 5
     zone_rurale: number;        // KPI 6
@@ -17,12 +27,14 @@ export interface KpiResponse {
   apprenants: {
     total: number;              // KPI 9
     age_35_max: number;         // KPI 10
+    age_ranges: AgeRanges;
     age_35_max_femmes: number;  // KPI 11
     femmes: number;             // KPI 12
     zone_rurale: number;        // KPI 13
     situation_handicap: number; // KPI 14
   };
   engagement: {
+    apprenants_actifs: number;
     apprenants_connectes: number; // KPI 15
     apprenants_ressource: {       // KPI 16
       semaine: number;
@@ -33,6 +45,10 @@ export interface KpiResponse {
   // ── #260 — suivi des autres modules ──────────────────────────────────────
   audience: {
     modules: ModuleAudience[];
+    opportunites?: {
+      bourses: { vues: number; utilisateurs: number };
+      stages: { vues: number; utilisateurs: number };
+    };
     total_vues: number;
     /** Jamais la somme des `utilisateurs` par module : qui visite deux modules
      *  n'est compté qu'une fois. */
