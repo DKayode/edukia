@@ -235,8 +235,9 @@ simplement cet arbre de décision sur la réponse de `POST /paiements/initier` :
    n'est pas l'URL qui active l'abonnement.
 4. Après fermeture ou retour de la WebView, ne pas supposer que le paiement a
    réussi : appeler `GET /paiements/{uuid}` jusqu'à obtenir un statut final.
-5. Pour KKiaPay SDK, lorsque le callback Flutter renvoie `transactionId`,
-   envoyer cette référence au backend avant le polling :
+5. Pour KKiaPay SDK récent, le callback succès renvoie une map contenant
+   `transactionId`, `status` et `requestData`. Envoyer `transactionId` au
+   backend avant le polling :
 
 ```http
 POST /paiements/{uuid}/transaction-prestataire
@@ -331,6 +332,9 @@ final kkiapay = KKiaPay(
   paymentMethods: const ['momo', 'card'],
   callback: (response, context) async {
     Navigator.pop(context);
+    // SDK KKiaPay >= 1.2.0 : response contient notamment transactionId,
+    // status et requestData. Logger response en sandbox si une ancienne
+    // version du SDK renvoie une forme différente.
     final transactionId = response['transactionId'] as String?;
     if (transactionId != null && transactionId.isNotEmpty) {
       await api.confirmerTransactionPrestataire(
