@@ -3,6 +3,7 @@ import { ModePaiement, PrestatairePaiement } from '../shared/paiement.enums';
 
 @Entity('configurations_paiement')
 @Index(['pays'])
+@Index(['pays', 'prestataire', 'mode'], { unique: true })
 export class ConfigurationPaiement {
   @PrimaryGeneratedColumn()
   id: number;

@@ -3,6 +3,7 @@ import { ApiBearerAuth, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swa
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentCountry } from '../common/decorators/current-country.decorator';
 import { PaginationDto } from '../common/dto/pagination.dto';
+import { ConfirmerTransactionMobileDto } from './dto/confirmer-transaction-mobile.dto';
 import { InitierPaiementDto } from './dto/initier-paiement.dto';
 import { ListePrestatairesDisponiblesDto } from './dto/prestataire-disponible.dto';
 import { PaiementsService } from './paiements.service';
@@ -41,5 +42,18 @@ export class PaiementsController {
   @ApiOperation({ summary: 'Statut d’un paiement pour polling mobile' })
   findOne(@CurrentCountry() pays: string, @Request() req, @Param('uuid') uuid: string) {
     return this.paiements.findOne(pays, req.user?.utilisateurId, uuid);
+  }
+
+  @Post(':uuid/transaction-prestataire')
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Associer et vérifier la transaction renvoyée par un SDK mobile' })
+  confirmerTransactionMobile(
+    @CurrentCountry() pays: string,
+    @Request() req,
+    @Param('uuid') uuid: string,
+    @Body() dto: ConfirmerTransactionMobileDto,
+  ) {
+    return this.paiements.confirmerTransactionMobile(pays, req.user?.utilisateurId, uuid, dto);
   }
 }

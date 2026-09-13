@@ -16,12 +16,12 @@ export class ConfigurerPaiementDto {
   @IsOptional()
   @IsNumber()
   @Min(0)
-  montant_min?: number;
+  montant_min?: number | null;
 
   @IsOptional()
   @IsNumber()
   @Min(0)
-  montant_max?: number;
+  montant_max?: number | null;
 
   @IsOptional()
   @IsBoolean()

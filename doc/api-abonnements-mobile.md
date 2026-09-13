@@ -58,9 +58,11 @@ JSON — comme le reste de l'API.
 │  GET  /abonnements/plans        →  catalogue                │
 │  POST /abonnements/souscrire    →  abonnement EN_ATTENTE    │
 └─────────────────────────────────────────────────────────────┘
-              ↓ paiement (hors app pour l'instant)
-┌─ Un administrateur encaisse et active ─────────────────────┐
-│  l'abonnement passe à ACTIF                                 │
+              ↓ paiement mobile
+┌─ Paiement en ligne ────────────────────────────────────────┐
+│  GET /paiements/prestataires → KKiaPay/FedaPay actif        │
+│  POST /paiements/initier → URL ou token client              │
+│  GET /paiements/{uuid} → polling jusqu'au statut final      │
 └─────────────────────────────────────────────────────────────┘
               ↓
       GET /abonnements/mon-abonnement  →  statut ACTIF
@@ -90,9 +92,9 @@ JSON — comme le reste de l'API.
 Trié par `ordre_affichage` puis par prix — **affichez dans l'ordre reçu**, ne
 retriez pas côté client, c'est le levier de mise en avant commercial.
 
-> **Un tableau vide est un état normal, pas une erreur.** Les plans sont fermés
-> tant que l'encaissement n'est pas livré. Prévoyez un écran « bientôt
-> disponible » plutôt qu'un spinner infini ou un message d'échec.
+> **Un tableau vide est un état normal, pas une erreur.** Les plans peuvent être
+> fermés temporairement par pays. Prévoyez un écran « bientôt disponible »
+> plutôt qu'un spinner infini ou un message d'échec.
 
 `prix` est un **nombre**, pas une chaîne. `duree_jours` sert à afficher la durée
 sans la déduire du `code`.
@@ -122,8 +124,7 @@ sans la déduire du `code`.
 ```
 
 **`EN_ATTENTE` n'ouvre aucun droit.** L'abonnement ne devient `ACTIF` qu'après
-encaissement. Tant que l'intégration du paiement n'est pas livrée, c'est un
-administrateur qui active après réception hors application.
+confirmation du paiement par le prestataire configuré.
 
 L'écran doit donc afficher un état d'attente explicite — « en attente de
 confirmation de paiement » — et **surtout pas** annoncer que l'abonnement est
@@ -131,6 +132,210 @@ actif.
 
 Appeler `souscrire` deux fois de suite ne crée pas deux lignes : la souscription
 en attente est réutilisée. Inutile de vous prémunir contre le double-tap.
+
+### Paiement mobile
+
+`GET /paiements/prestataires?country=benin` renvoie uniquement les
+prestataires actifs pour le pays, par exemple KKiaPay ou FedaPay. Le champ
+`mode` indique `sandbox` ou `live`, mais l'application mobile ne le choisit pas :
+il vient de la configuration admin côté serveur.
+
+Exemple de réponse :
+
+```json
+{
+  "pays": "benin",
+  "prestataires": [
+    {
+      "pays": "benin",
+      "prestataire": "KKIAPAY",
+      "libelle": "KKiaPay",
+      "mode": "sandbox",
+      "devise": "XOF",
+      "montant_min": 100,
+      "montant_max": 500000
+    }
+  ]
+}
+```
+
+`POST /paiements/initier` se fait ensuite avec le JWT utilisateur :
+
+```json
+{
+  "abonnement_uuid": "8960c6bb-4cc3-49da-876e-1b22842e7701",
+  "prestataire": "KKIAPAY",
+  "methode": "MOBILE_MONEY",
+  "telephone": "+229 0161345578"
+}
+```
+
+La réponse contient l'`url_paiement` ou le `token_client` selon le prestataire.
+Le mobile ouvre le paiement, puis poll `GET /paiements/{uuid}` jusqu'à
+`REUSSI`, `ECHOUE`, `ANNULE`, `EXPIRE` ou `REMBOURSE`.
+
+Exemple de réponse KKiaPay pour Flutter :
+
+```json
+{
+  "uuid": "4d42f2ec-4f19-4ac2-9c8c-9d49d1c9c215",
+  "prestataire": "KKIAPAY",
+  "mode": "sandbox",
+  "statut": "EN_ATTENTE",
+  "montant": 2000,
+  "devise": "XOF",
+  "url_paiement": null,
+  "token_client": null,
+  "payload_initiation": {
+    "integration": "widget",
+    "widget": {
+      "sandbox": true,
+      "amount": 2000,
+      "currency": "XOF",
+      "key": "PUBLIC_KEY_KKIAPAY",
+      "callback": "https://api.edukia.example/paiements/webhooks/kkiapay",
+      "reference": "EDK-1780000000000-26746-12",
+      "metadata": {
+        "paiementUuid": "4d42f2ec-4f19-4ac2-9c8c-9d49d1c9c215",
+        "abonnementUuid": "8960c6bb-4cc3-49da-876e-1b22842e7701"
+      }
+    }
+  }
+}
+```
+
+Exemple de réponse FedaPay avec checkout hébergé :
+
+```json
+{
+  "uuid": "9b4b0678-3d12-4c84-97e6-4ccf41531d25",
+  "prestataire": "FEDAPAY",
+  "mode": "sandbox",
+  "statut": "EN_ATTENTE",
+  "montant": 2000,
+  "devise": "XOF",
+  "url_paiement": "https://checkout.fedapay.com/...",
+  "token_client": null
+}
+```
+
+### Ouverture du paiement dans Flutter
+
+Le client Flutter ne met aucune clé secrète dans l'application. Il applique
+simplement cet arbre de décision sur la réponse de `POST /paiements/initier` :
+
+1. Si `url_paiement` est présent, ouvrir cette URL dans une WebView ou un
+   navigateur in-app. C'est le cas attendu pour les checkouts hébergés comme
+   FedaPay quand le prestataire renvoie une URL.
+2. Si `url_paiement` est absent mais `token_client` est présent, utiliser le
+   SDK ou le widget du prestataire avec ce token.
+3. Pour KKiaPay, lire `payload_initiation.widget` et lancer le SDK Flutter
+   `kkiapay_flutter_sdk`. Ce SDK ouvre lui-même la WebView de paiement.
+4. Après fermeture ou retour de la WebView, ne pas supposer que le paiement a
+   réussi : appeler `GET /paiements/{uuid}` jusqu'à obtenir un statut final.
+5. Pour KKiaPay SDK, lorsque le callback Flutter renvoie `transactionId`,
+   envoyer cette référence au backend avant le polling :
+
+```http
+POST /paiements/{uuid}/transaction-prestataire
+Authorization: Bearer <token>
+```
+
+```json
+{ "reference_prestataire": "TRANSACTION_ID_KKIAPAY" }
+```
+
+Le backend vérifie alors la transaction avec les clés serveur, met à jour le
+statut du paiement et active l'abonnement si le statut vérifié est `REUSSI`.
+Le mobile ne doit pas décider lui-même qu'un abonnement est actif à partir du
+callback SDK : seule la réponse vérifiée par le backend fait foi.
+
+Exemple de logique Flutter :
+
+```dart
+final paiement = await api.initierPaiement(
+  abonnementUuid: abonnementUuid,
+  prestataire: 'KKIAPAY',
+  telephone: telephone,
+);
+
+if (paiement.urlPaiement != null) {
+  await ouvrirWebView(paiement.urlPaiement!);
+} else if (paiement.tokenClient != null) {
+  await ouvrirCheckoutPrestataireAvecToken(paiement);
+} else if (paiement.prestataire == 'KKIAPAY') {
+  await ouvrirKkiaPaySdk(paiement.payloadInitiation['widget']);
+} else {
+  throw PaiementException('Paiement indisponible pour ce prestataire.');
+}
+
+final statut = await api.pollPaiementJusquAuStatutFinal(paiement.uuid);
+if (statut == 'REUSSI') {
+  await api.rafraichirMonAbonnement();
+}
+```
+
+Polling recommandé :
+
+```dart
+Future<String> pollPaiementJusquAuStatutFinal(String uuid) async {
+  const statutsFinaux = {
+    'REUSSI',
+    'ECHOUE',
+    'ANNULE',
+    'EXPIRE',
+    'REMBOURSE',
+  };
+
+  for (var tentative = 0; tentative < 30; tentative++) {
+    final paiement = await api.getPaiement(uuid);
+    if (statutsFinaux.contains(paiement.statut)) {
+      return paiement.statut;
+    }
+    await Future.delayed(const Duration(seconds: 2));
+  }
+
+  return 'EN_ATTENTE';
+}
+```
+
+Pour KKiaPay, `payload_initiation.widget` contient les champs publics à passer
+au SDK Flutter : `amount`, `currency`, `key`, `sandbox`, `callback`,
+`reference`, et les métadonnées. Les clés privées et secrets webhook restent
+uniquement côté backend.
+
+Exemple côté Flutter avec `kkiapay_flutter_sdk` :
+
+```dart
+final widget = paiement.payloadInitiation['widget'] as Map<String, dynamic>;
+
+final kkiapay = KKiaPay(
+  amount: widget['amount'] as int,
+  apikey: widget['key'] as String,
+  sandbox: widget['sandbox'] as bool,
+  phone: telephone,
+  name: nomComplet,
+  email: email,
+  reason: 'Abonnement Edukia ${widget['reference']}',
+  data: widget['reference'] as String,
+  callbackUrl: widget['callback'] as String,
+  countries: const ['BJ'],
+  paymentMethods: const ['momo', 'card'],
+  callback: (response, context) async {
+    Navigator.pop(context);
+    final transactionId = response['transactionId'] as String?;
+    if (transactionId != null && transactionId.isNotEmpty) {
+      await api.confirmerTransactionPrestataire(
+        paiement.uuid,
+        transactionId,
+      );
+    }
+    await api.pollPaiementJusquAuStatutFinal(paiement.uuid);
+  },
+);
+
+Navigator.push(context, MaterialPageRoute(builder: (_) => kkiapay));
+```
 
 ### Erreurs
 
@@ -317,8 +522,9 @@ Future<void> telechargerConcours(Concours c) async {
 **Le verrou est éteint aujourd'hui, l'app doit être prête quand même.**
 `verrouille` et `mes-droits` disent déjà la vérité ; développez contre eux.
 
-**Une liste de plans vide n'est pas une erreur.** C'est l'état attendu tant que
-l'encaissement n'est pas livré.
+**Une liste de prestataires vide n'est pas une erreur fatale.** Affichez un
+état d'indisponibilité temporaire du paiement et laissez l'utilisateur revenir
+plus tard.
 
 **`EN_ATTENTE` n'ouvre aucun droit.** N'annoncez jamais un abonnement actif sur
 la seule foi de la réponse de `souscrire`.
@@ -329,7 +535,6 @@ l'échéance et le passage horaire de la tâche d'expiration.
 **Branchez-vous sur `error`, pas sur `message`.** Le texte est fait pour être lu
 par l'utilisateur et peut changer ; `SUBSCRIPTION_REQUIRED` est le contrat.
 
-**Le paiement n'est pas encore intégré.** L'activation est faite par un
-administrateur après encaissement hors application. Le parcours de paiement
-in-app arrivera avec l'intégration du prestataire — l'écran d'abonnement doit
-pouvoir l'accueillir sans être reconstruit.
+**Le mode sandbox/live est serveur.** Le mobile affiche le mode reçu si utile
+pour les tests, mais ne doit jamais envoyer un mode pour forcer l'environnement
+de paiement.
