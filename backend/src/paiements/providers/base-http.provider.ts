@@ -64,13 +64,16 @@ export abstract class BaseHttpPaiementProvider {
 
   protected evenementGenerique(payload: any): EvenementPaiementParse {
     const data = payload?.data ?? payload?.transaction ?? payload;
+    // KKiaPay envoie transactionId (camelCase), d'autres envoient transaction_id ou id
+    const refId = data?.id ?? data?.transactionId ?? data?.transaction_id;
     return {
-      evenementId: String(payload?.id ?? payload?.event_id ?? data?.id ?? data?.transaction_id ?? data?.reference),
-      referencePrestataire: data?.id ? String(data.id) : data?.transaction_id ? String(data.transaction_id) : undefined,
+      evenementId: String(payload?.id ?? payload?.event_id ?? refId ?? data?.reference ?? `evt-${Date.now()}`),
+      referencePrestataire: refId != null ? String(refId) : undefined,
       reference: String(data?.metadata?.reference ?? data?.reference ?? data?.external_reference ?? data?.custom_id ?? ''),
       statut: this.statutDepuis(data?.status ?? data?.transaction_status ?? payload?.status),
       montant: Number(data?.amount ?? data?.montant ?? 0),
-      devise: String(data?.currency ?? data?.devise ?? 'XOF'),
+      // FedaPay renvoie currency: { iso: "XOF" }, KKiaPay renvoie une string
+      devise: typeof data?.currency === 'object' ? String(data.currency?.iso ?? 'XOF') : String(data?.currency ?? data?.devise ?? 'XOF'),
       methode: MethodePaiement.MOBILE_MONEY,
     };
   }
