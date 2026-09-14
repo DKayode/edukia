@@ -101,8 +101,32 @@ celle qui vous concerne, ne déduisez pas les autres.
 
 ```json
 {
-  "RESOURCE_VIEW": { "used": 1, "limit": 5, "est_actif": true, "periode_reset": "MENSUEL", "reinitialisation": "2026-10-01T00:00:00.000Z" },
-  "KETSIA_AI":     { "used": 0, "limit": 1, "est_actif": true, "periode_reset": "MENSUEL", "reinitialisation": "2026-10-01T00:00:00.000Z" }
+  "RESOURCE_VIEW": {
+    "used": 1,
+    "limit": 5,
+    "est_actif": true,
+    "quota_gratuit_actif": true,
+    "periode_reset": "MENSUEL",
+    "reinitialisation": "2026-10-01T00:00:00.000Z",
+    "abonnement_actif": false,
+    "acces_actif": true,
+    "illimite": false,
+    "quota_applicable": true,
+    "reason": "FREE_QUOTA"
+  },
+  "KETSIA_AI": {
+    "used": 0,
+    "limit": 1,
+    "est_actif": false,
+    "quota_gratuit_actif": false,
+    "periode_reset": "MENSUEL",
+    "reinitialisation": "2026-10-01T00:00:00.000Z",
+    "abonnement_actif": true,
+    "acces_actif": true,
+    "illimite": true,
+    "quota_applicable": false,
+    "reason": "SUBSCRIBED"
+  }
 }
 ```
 
@@ -111,7 +135,18 @@ celle qui vous concerne, ne déduisez pas les autres.
 | `used` / `limit` | « il vous reste 4 ressources gratuites » |
 | `reinitialisation` | date de remise à zéro — « vos ressources reviennent le 1er octobre » |
 | `periode_reset` | `MENSUEL` ou `AVIE` ; ne supposez pas la valeur |
-| `est_actif` | `false` = quota désactivé, la fonctionnalité est libre |
+| `quota_gratuit_actif` (alias `est_actif`) | état du quota gratuit dans le back-office ; ce n'est PAS l'accès utilisateur |
+| `abonnement_actif` | l'utilisateur a un abonnement actif au moment de la requête |
+| `acces_actif` | champ à utiliser pour savoir si l'utilisateur peut accéder à la fonctionnalité |
+| `illimite` | aucun plafond ne s'applique : abonné, admin ou quota désactivé |
+| `quota_applicable` | `true` seulement quand le quota gratuit limite réellement l'utilisateur |
+| `reason` | `SUBSCRIBED`, `ADMIN`, `FREE_QUOTA` ou `QUOTA_EXCEEDED` |
+
+Après un paiement validé, `GET /abonnements/mon-abonnement` renvoie
+`statut: "ACTIF"` pendant que `KETSIA_AI.quota_gratuit_actif` (alias `est_actif`) vaut `false`. Ce n'est
+pas une contradiction : ce champ décrit uniquement le quota gratuit configuré par
+l'administration. Pour l'écran utilisateur, lisez `KETSIA_AI.acces_actif` (qui vaut `true`) et
+`KETSIA_AI.reason` (qui vaut `"SUBSCRIBED"`).
 
 **Affichez la date de remise à zéro dans le message de blocage.** « Revenez le
 1er octobre, ou abonnez-vous » se refuse mieux qu'un simple « quota épuisé ».
@@ -253,7 +288,7 @@ class QuotasApi {
   Future<Map<String, Quota>> mesQuotas() async {
     final r = await _client.get(Uri.parse('$baseUrl/abonnements/mes-quotas?country=$pays'), headers: _entetes);
     final d = jsonDecode(r.body) as Map<String, dynamic>;
-    return d.map((k, v) => MapEntry(k, Quota(used: v['used'], limit: v['limit'])));
+    return d.map((k, v) => MapEntry(k, Quota.fromJson(v as Map<String, dynamic>)));
   }
 
   /// À appeler AVANT d'ouvrir l'assistante. Confort d'interface : Kessiah
@@ -272,14 +307,44 @@ class QuotasApi {
 /// `null` = aucun plafond ne s'applique (abonné, admin, ou quota désactivé).
 /// Ne confondez pas avec `Quota(used: 0, limit: 0)`.
 class Quota {
-  const Quota({required this.used, required this.limit, this.reinitialisation});
+  const Quota({
+    required this.used,
+    required this.limit,
+    required this.accesActif,
+    required this.abonnementActif,
+    required this.illimite,
+    required this.quotaApplicable,
+    required this.reason,
+    required this.estActif,
+    this.reinitialisation,
+  });
   final int used, limit;
+  final bool accesActif, abonnementActif, illimite, quotaApplicable, estActif;
+  final String reason;
+
+  factory Quota.fromJson(Map<String, dynamic> json) {
+    final reason = json['reason'] as String? ?? 'FREE_QUOTA';
+    return Quota(
+      used: json['used'] as int? ?? 0,
+      limit: json['limit'] as int? ?? 0,
+      accesActif: json['acces_actif'] as bool? ?? (reason != 'QUOTA_EXCEEDED'),
+      abonnementActif: json['abonnement_actif'] as bool? ?? false,
+      illimite: json['illimite'] as bool? ?? false,
+      quotaApplicable: json['quota_applicable'] as bool? ?? false,
+      reason: reason,
+      estActif: json['est_actif'] as bool? ?? false,
+      reinitialisation: json['reinitialisation'] != null
+          ? DateTime.tryParse(json['reinitialisation'] as String)
+          : null,
+    );
+  }
   /// Date de remise à zéro renvoyée par le serveur — ne la recalculez pas :
   /// la période est réglable depuis le back-office (mensuelle ou à vie).
   final DateTime? reinitialisation;
-  int get restant => (limit - used).clamp(0, limit);
-  bool get epuise => used >= limit;
-  bool get derniere => restant == 1;   // pour prévenir avant le dernier usage
+  int get restant => quotaApplicable ? (limit - used).clamp(0, limit) : 0;
+  bool get epuise => quotaApplicable && used >= limit;
+  bool get derniere => quotaApplicable && restant == 1;   // pour prévenir avant le dernier usage
+  bool get peutAcceder => accesActif;
 }
 ```
 
