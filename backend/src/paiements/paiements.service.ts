@@ -453,7 +453,26 @@ export class PaiementsService {
     mode?: ModePaiement,
   ): Partial<ConfigurationPaiement>[] {
     const prestataireDefaut = this.config.get<string>('PAIEMENT_PRESTATAIRE_DEFAUT', 'KKIAPAY') as PrestatairePaiement;
-    if (prestataire && prestataire !== PrestatairePaiement.KKIAPAY) return [];
+    if (prestataire && prestataire !== PrestatairePaiement.KKIAPAY && prestataire !== PrestatairePaiement.FEDAPAY) return [];
+    if (prestataire === PrestatairePaiement.FEDAPAY || (!prestataire && prestataireDefaut === PrestatairePaiement.FEDAPAY)) {
+      const secretKey = this.config.get<string>('FEDAPAY_SECRET_KEY');
+      if (secretKey) {
+        const modeDefaut = mode ?? (this.config.get<string>('PAIEMENT_MODE', ModePaiement.SANDBOX) as ModePaiement);
+        return [{
+          pays,
+          prestataire: PrestatairePaiement.FEDAPAY,
+          mode: modeDefaut,
+          devise: this.config.get<string>('PAIEMENT_DEVISE_DEFAUT', 'XOF'),
+          montant_min: null,
+          montant_max: null,
+          est_actif: true,
+          credentials_chiffres: null,
+          credentials_masquees: {
+            secret_key: this.credentials.mask({ secret_key: secretKey }).secret_key,
+          },
+        }];
+      }
+    }
     if (!prestataire && prestataireDefaut !== PrestatairePaiement.KKIAPAY) return [];
 
     const publicKey = this.config.get<string>('KKIAPAY_PUBLIC_KEY');

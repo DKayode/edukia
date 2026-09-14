@@ -47,6 +47,7 @@ describe('PaiementsService - remboursement et commission', () => {
       parrainageService as unknown as ParrainageService,
       {} as any,
       {} as any,
+      { get: jest.fn() } as any,
     );
   });
 
@@ -86,7 +87,7 @@ describe('PaiementsService - remboursement et commission', () => {
     });
     expect(configurations.find).toHaveBeenCalledWith({
       where: { pays: 'benin', est_actif: true },
-      order: { prestataire: 'ASC' },
+      order: { prestataire: 'ASC', mode: 'ASC' },
     });
   });
 

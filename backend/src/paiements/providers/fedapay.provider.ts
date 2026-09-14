@@ -24,14 +24,31 @@ export class FedaPayProvider extends BaseHttpPaiementProvider implements Paiemen
       customer: { firstname: cmd.client.nom, email: cmd.client.email, phone_number: cmd.client.telephone },
       metadata: { ...cmd.metadata, reference: cmd.reference },
     };
-    const reponse = await this.postJson(`${baseUrl}/transactions`, payload, {
+    const authHeader = {
       Authorization: `Bearer ${credentials.secret_key ?? this.config.get<string>('FEDAPAY_SECRET_KEY') ?? ''}`,
-    });
-    const data = reponse?.transaction ?? reponse?.data ?? reponse;
+    };
+    const reponse = await this.postJson(`${baseUrl}/transactions`, payload, authHeader);
+    const data = reponse?.['v1/transaction'] ?? reponse?.transaction ?? reponse?.data ?? reponse;
+    const transactionId = data?.id;
+
+    let urlPaiement = data?.payment_url ?? data?.url ?? null;
+    let tokenClient = data?.token ?? null;
+
+    if (!urlPaiement && transactionId) {
+      try {
+        const tokenReponse = await this.postJson(`${baseUrl}/transactions/${transactionId}/token`, {}, authHeader);
+        const tokenData = tokenReponse?.['v1/token'] ?? tokenReponse?.token ?? tokenReponse?.data ?? tokenReponse;
+        urlPaiement = tokenData?.url ?? tokenReponse?.url ?? null;
+        tokenClient = typeof tokenData === 'string' ? tokenData : tokenData?.token ?? null;
+      } catch {
+        // En cas d'erreur de génération de token, urlPaiement restera null
+      }
+    }
+
     return {
-      referencePrestataire: String(data?.id ?? cmd.reference),
-      urlPaiement: data?.payment_url ?? data?.url ?? null,
-      tokenClient: data?.token ?? null,
+      referencePrestataire: String(transactionId ?? cmd.reference),
+      urlPaiement,
+      tokenClient,
       payload: reponse,
     };
   }
