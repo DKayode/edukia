@@ -10,8 +10,18 @@ GET /dashboard/moi/activite?country=benin&jours=28
 Authorization: Bearer <access_token>
 ```
 
-`country` scope les compteurs par pays. `jours` règle la profondeur de la série
-journalière, entre 1 et 365. Sans `jours`, le serveur renvoie 28 jours.
+`country` est optionnel. S'il est absent, le serveur utilise `benin` par défaut
+sur cette route. Le mobile doit quand même l'envoyer quand l'utilisateur a choisi
+un pays, pour éviter d'afficher par erreur les compteurs du Bénin.
+
+Pourquoi il existe ici : Edukia est multi-pays. Le même utilisateur peut ouvrir
+l'app sur un catalogue Bénin, Sénégal, Congo, etc. Les ressources consultées,
+les soumissions et les réglages de quotas sont stockés avec un champ `pays`.
+`country` dit donc au serveur : "donne-moi les KPI personnels de cet utilisateur
+dans le pays actuellement sélectionné dans l'app".
+
+`jours` règle la profondeur de la série journalière, entre 1 et 365. Sans
+`jours`, le serveur renvoie 28 jours.
 
 L'identité vient toujours du JWT. Le mobile ne transmet jamais d'`utilisateur_id`
 pour cette route.
