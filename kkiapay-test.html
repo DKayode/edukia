@@ -1,0 +1,339 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Edukia - Test KKiaPay sandbox</title>
+    <script src="https://cdn.kkiapay.me/k.js"></script>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        color: #172033;
+        background: #f5f7fb;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        padding: 32px;
+      }
+
+      main {
+        width: min(920px, 100%);
+        display: grid;
+        gap: 20px;
+      }
+
+      section {
+        background: #fff;
+        border: 1px solid #d8deea;
+        border-radius: 8px;
+        padding: 20px;
+        box-shadow: 0 10px 28px rgb(21 33 56 / 0.08);
+      }
+
+      h1 {
+        margin: 0 0 6px;
+        font-size: 24px;
+      }
+
+      p {
+        margin: 0;
+        color: #5b6577;
+      }
+
+      form {
+        display: grid;
+        gap: 14px;
+        margin-top: 18px;
+      }
+
+      label {
+        display: grid;
+        gap: 6px;
+        font-size: 13px;
+        font-weight: 700;
+      }
+
+      input {
+        width: 100%;
+        border: 1px solid #c9d2e3;
+        border-radius: 6px;
+        padding: 11px 12px;
+        font: inherit;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 14px;
+      }
+
+      button {
+        justify-self: start;
+        border: 0;
+        border-radius: 6px;
+        padding: 11px 16px;
+        background: #ef233c;
+        color: white;
+        font-weight: 800;
+        cursor: pointer;
+      }
+
+      button:disabled {
+        opacity: 0.55;
+        cursor: wait;
+      }
+
+      pre {
+        margin: 0;
+        min-height: 220px;
+        overflow: auto;
+        border-radius: 8px;
+        background: #101828;
+        color: #d7f7df;
+        padding: 14px;
+        font-size: 12px;
+        line-height: 1.5;
+        white-space: pre-wrap;
+      }
+
+      .hint {
+        margin-top: 10px;
+        font-size: 13px;
+      }
+
+      @media (max-width: 720px) {
+        body {
+          padding: 18px;
+        }
+
+        .grid {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section>
+        <h1>Test paiement KKiaPay sandbox</h1>
+        <p>Cette page initie un paiement via l'API Edukia, ouvre le widget KKiaPay, puis vérifie la transaction côté backend.</p>
+        <p class="hint">Compte prérempli: compte test admin fourni. Les clés KKiaPay privées ne sont jamais utilisées dans cette page.</p>
+
+        <form id="test-form">
+          <div class="grid">
+            <label>
+              API base URL
+              <input id="api-url" value="https://api.educ-prime.com" required />
+            </label>
+            <label>
+              Pays
+              <input id="country" value="benin" required />
+            </label>
+            <label>
+              Email
+              <input id="email" type="email" value="admin@exemple.com" required />
+            </label>
+            <label>
+              Mot de passe
+              <input id="password" type="password" value="MotDePasse123!" required />
+            </label>
+            <label>
+              Téléphone test
+              <input id="phone" value="+2290161345578" required />
+            </label>
+          </div>
+          <button id="start-button" type="submit">Initier et ouvrir KKiaPay</button>
+        </form>
+      </section>
+
+      <section>
+        <pre id="log">Pret.</pre>
+      </section>
+    </main>
+
+    <script>
+      const state = {
+        apiUrl: "",
+        token: "",
+        paiementUuid: "",
+        abonnementUuid: "",
+        widget: null,
+        client: null,
+      };
+
+      const logNode = document.querySelector("#log");
+      const form = document.querySelector("#test-form");
+      const button = document.querySelector("#start-button");
+
+      function log(message, data) {
+        const line = data === undefined ? message : `${message}\n${JSON.stringify(data, null, 2)}`;
+        logNode.textContent += `\n\n${line}`;
+        logNode.scrollTop = logNode.scrollHeight;
+      }
+
+      async function api(path, options = {}) {
+        const headers = {
+          "Content-Type": "application/json",
+          ...(state.token ? { Authorization: `Bearer ${state.token}` } : {}),
+          ...(options.headers || {}),
+        };
+        const response = await fetch(`${state.apiUrl}${path}`, { ...options, headers });
+        const text = await response.text();
+        const body = text ? JSON.parse(text) : null;
+        if (!response.ok) {
+          throw new Error(`${options.method || "GET"} ${path} -> ${response.status}: ${JSON.stringify(body)}`);
+        }
+        return body;
+      }
+
+      async function verifierTransaction(transactionId) {
+        log("Transaction KKiaPay recue, verification backend...", { paiementUuid: state.paiementUuid, transactionId });
+        const paiement = await api(`/paiements/${state.paiementUuid}/transaction-prestataire`, {
+          method: "POST",
+          body: JSON.stringify({ reference_prestataire: transactionId }),
+        });
+        log("Verification backend terminee.", {
+          paiementUuid: paiement.uuid,
+          statut: paiement.statut,
+          reference_prestataire: paiement.reference_prestataire,
+        });
+      }
+
+      function extractTransactionId(response) {
+        if (!response) return "";
+        if (typeof response === "string") return response;
+        return response.transactionId || response.transaction_id || response.id || response.reference || "";
+      }
+
+      function openWidget(widget, client) {
+        state.widget = widget;
+        state.client = client;
+
+        if (typeof window.addSuccessListener === "function") {
+          window.addSuccessListener(async (response) => {
+            try {
+              const transactionId = extractTransactionId(response);
+              log("Callback success KKiaPay.", { response, transactionId });
+              if (!transactionId) throw new Error("Aucun transactionId dans le callback KKiaPay.");
+              await verifierTransaction(transactionId);
+            } catch (error) {
+              log("Erreur verification backend.", { message: error.message });
+            }
+          });
+        }
+
+        if (typeof window.addFailedListener === "function") {
+          window.addFailedListener((response) => log("Callback echec KKiaPay.", response));
+        }
+
+        if (typeof window.addKkiapayCloseListener === "function") {
+          window.addKkiapayCloseListener(() => log("Widget KKiaPay ferme."));
+        }
+
+        if (typeof window.openKkiapayWidget !== "function") {
+          throw new Error("openKkiapayWidget introuvable. Le SDK https://cdn.kkiapay.me/k.js n'est pas charge.");
+        }
+
+        window.openKkiapayWidget({
+          amount: Number(widget.amount),
+          position: "center",
+          callback: widget.callback,
+          data: widget.reference,
+          theme: "#ef233c",
+          key: widget.key,
+          sandbox: Boolean(widget.sandbox),
+          name: client.name,
+          email: client.email,
+          phone: client.phone,
+        });
+
+        setTimeout(() => {
+          const frames = Array.from(document.querySelectorAll("iframe")).map((frame) => ({
+            src: frame.src,
+            visible: getComputedStyle(frame).display !== "none",
+            zIndex: getComputedStyle(frame).zIndex,
+            width: frame.getBoundingClientRect().width,
+            height: frame.getBoundingClientRect().height,
+          }));
+          log("Widget KKiaPay appele. Diagnostic iframe:", {
+            openKkiapayWidget: typeof window.openKkiapayWidget,
+            addSuccessListener: typeof window.addSuccessListener,
+            frames,
+          });
+        }, 1200);
+      }
+
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        button.disabled = true;
+        logNode.textContent = "Demarrage du test...";
+
+        try {
+          state.apiUrl = document.querySelector("#api-url").value.replace(/\/$/, "");
+          const country = document.querySelector("#country").value;
+          const email = document.querySelector("#email").value;
+          const password = document.querySelector("#password").value;
+          const phone = document.querySelector("#phone").value;
+
+          log("Connexion...");
+          const login = await api("/auth/connexion", {
+            method: "POST",
+            body: JSON.stringify({ email, mot_de_passe: password, appareil: "web", pays: country }),
+          });
+          state.token = login.access_token;
+
+          log("Lecture des plans...");
+          const plans = await api(`/abonnements/plans?country=${encodeURIComponent(country)}`);
+          const plan = plans.find((item) => item.est_actif) || plans[0];
+          if (!plan) throw new Error("Aucun plan actif disponible.");
+          log("Plan choisi.", { uuid: plan.uuid, code: plan.code, prix: plan.prix, devise: plan.devise });
+
+          log("Souscription...");
+          const abonnement = await api("/abonnements/souscrire", {
+            method: "POST",
+            body: JSON.stringify({ plan_uuid: plan.uuid, pays: country }),
+          });
+          state.abonnementUuid = abonnement.uuid;
+          log("Abonnement pret.", { uuid: abonnement.uuid, statut: abonnement.statut });
+
+          log("Initiation paiement KKiaPay...");
+          const paiement = await api("/paiements/initier", {
+            method: "POST",
+            body: JSON.stringify({
+              abonnement_uuid: abonnement.uuid,
+              prestataire: "KKIAPAY",
+              methode: "MOBILE_MONEY",
+              telephone: phone,
+              pays: country,
+            }),
+          });
+          state.paiementUuid = paiement.uuid;
+          log("Paiement initie.", {
+            uuid: paiement.uuid,
+            statut: paiement.statut,
+            mode: paiement.mode,
+            hasWidget: Boolean(paiement.payload_initiation && paiement.payload_initiation.widget),
+            hasUrl: Boolean(paiement.url_paiement),
+          });
+
+          const widget = paiement.payload_initiation && paiement.payload_initiation.widget;
+          if (!widget) throw new Error("La reponse ne contient pas payload_initiation.widget.");
+          openWidget(widget, { email, phone, name: "Test Edukia" });
+        } catch (error) {
+          log("Erreur.", { message: error.message });
+        } finally {
+          button.disabled = false;
+        }
+      });
+    </script>
+  </body>
+</html>

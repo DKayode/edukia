@@ -374,9 +374,17 @@ export class PaiementsService {
     if (!paiement) throw new NotFoundException('Paiement introuvable');
     if (STATUTS_FINAUX.has(paiement.statut)) return;
 
+    // En mode widget KKiaPay, reference_prestataire est null a l'initiation.
+    // Le webhook apporte la reference : on la persiste ici.
+    if (!paiement.reference_prestataire && evt.referencePrestataire) {
+      paiement.reference_prestataire = evt.referencePrestataire;
+      await this.paiements.save(paiement);
+    }
+
     const config = await this.configurationPourPaiement(paiement);
-    const statutVerifie = paiement.reference_prestataire
-      ? await provider.verifierStatut(paiement.reference_prestataire, this.credentials.decrypt(config?.credentials_chiffres), paiement.mode)
+    const refVerif = paiement.reference_prestataire ?? evt.referencePrestataire;
+    const statutVerifie = refVerif
+      ? await provider.verifierStatut(refVerif, this.credentials.decrypt(config?.credentials_chiffres), paiement.mode)
       : { statut: evt.statut, montant: evt.montant, devise: evt.devise };
     paiement.methode = evt.methode ?? paiement.methode;
     await this.appliquerStatutVerifie(paiement, statutVerifie.statut, statutVerifie.montant, payload as any);
@@ -453,7 +461,28 @@ export class PaiementsService {
     mode?: ModePaiement,
   ): Partial<ConfigurationPaiement>[] {
     const prestataireDefaut = this.config.get<string>('PAIEMENT_PRESTATAIRE_DEFAUT', 'KKIAPAY') as PrestatairePaiement;
-    if (prestataire && prestataire !== PrestatairePaiement.KKIAPAY) return [];
+    if (prestataire && prestataire !== PrestatairePaiement.KKIAPAY && prestataire !== PrestatairePaiement.FEDAPAY) return [];
+    if (prestataire === PrestatairePaiement.FEDAPAY || (!prestataire && prestataireDefaut === PrestatairePaiement.FEDAPAY)) {
+      const secretKey = this.config.get<string>('FEDAPAY_SECRET_KEY');
+      const publicKey = this.config.get<string>('FEDAPAY_PUBLIC_KEY');
+      if (secretKey) {
+        const modeDefaut = mode ?? (this.config.get<string>('PAIEMENT_MODE', ModePaiement.SANDBOX) as ModePaiement);
+        return [{
+          pays,
+          prestataire: PrestatairePaiement.FEDAPAY,
+          mode: modeDefaut,
+          devise: this.config.get<string>('PAIEMENT_DEVISE_DEFAUT', 'XOF'),
+          montant_min: null,
+          montant_max: null,
+          est_actif: true,
+          credentials_chiffres: null,
+          credentials_masquees: {
+            public_key: publicKey ? this.credentials.mask({ public_key: publicKey }).public_key : undefined,
+            secret_key: this.credentials.mask({ secret_key: secretKey }).secret_key,
+          },
+        }];
+      }
+    }
     if (!prestataire && prestataireDefaut !== PrestatairePaiement.KKIAPAY) return [];
 
     const publicKey = this.config.get<string>('KKIAPAY_PUBLIC_KEY');
@@ -500,7 +529,7 @@ export class PaiementsService {
     montant: number,
     payload: Record<string, unknown>,
   ) {
-    if (Number(montant) !== Number(paiement.montant)) {
+    if (statut === StatutPaiement.REUSSI && Number(montant) !== Number(paiement.montant)) {
       throw new BadRequestException('Montant vérifié différent du montant attendu');
     }
     if (RANG_STATUT[statut] < RANG_STATUT[paiement.statut]) {

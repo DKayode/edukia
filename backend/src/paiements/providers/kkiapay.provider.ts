@@ -28,6 +28,7 @@ export class KkiaPayProvider extends BaseHttpPaiementProvider implements Paiemen
             currency: cmd.devise,
             key: publicKey,
             callback: cmd.urlRetour,
+            data: cmd.reference,
             reference: cmd.reference,
             metadata: cmd.metadata,
           },
@@ -60,7 +61,7 @@ export class KkiaPayProvider extends BaseHttpPaiementProvider implements Paiemen
   }
 
   verifierSignature(rawBody: Buffer, headers: Record<string, string | string[] | undefined>, credentials?: Record<string, string>): boolean {
-    return this.hmacValide(rawBody, this.lire(headers, 'x-kkiapay-signature'), credentials?.webhook_secret ?? credentials?.secret ?? this.config.get<string>('KKIAPAY_SECRET'));
+    return this.hmacValide(rawBody, this.lire(headers, 'x-kkiapay-secret') ?? this.lire(headers, 'x-kkiapay-signature'), credentials?.webhook_secret ?? credentials?.secret ?? this.config.get<string>('KKIAPAY_SECRET'));
   }
 
   parserWebhook(payload: unknown) {
