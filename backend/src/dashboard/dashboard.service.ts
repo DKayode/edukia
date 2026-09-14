@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
+import { QuotaService } from '../abonnements/quota.service';
 
 const JOURS_PAR_DEFAUT = 28;
 
@@ -16,29 +17,55 @@ const JOURS_PAR_DEFAUT = 28;
  * `resource_access` et `login_events` n'ont pas d'entité TypeORM exploitable
  * pour de l'agrégation : on les lit en SQL brut via le DataSource injecté,
  * comme le fait SubmissionsStatsService.
+ * Les quotas personnels, eux, viennent de QuotaService : ce sont les mêmes
+ * chiffres que `/abonnements/mes-quotas`, adossés à `quota_consommations`.
  *
  * À la différence de KpiService, qui compte des utilisateurs distincts pour un
  * rapport pays, tout ici est filtré sur un seul `utilisateur_id`.
  */
 @Injectable()
 export class DashboardService {
-  constructor(@InjectDataSource() private readonly dataSource: DataSource) {}
+  constructor(
+    @InjectDataSource() private readonly dataSource: DataSource,
+    private readonly quotas: QuotaService,
+  ) {}
 
   async getActivite(utilisateurId: number, pays: string, jours?: number) {
     const profondeur = jours ?? JOURS_PAR_DEFAUT;
 
-    const [serie, streak, compteurs] = await Promise.all([
+    const [serie, streak, compteurs, etatQuotas] = await Promise.all([
       this.serieJournaliere(utilisateurId, pays, profondeur),
       this.streak(utilisateurId),
       this.compteurs(utilisateurId, pays),
+      this.quotas.etatPourUtilisateur(utilisateurId, pays),
     ]);
+    const quotas = this.enrichirQuotas(etatQuotas);
 
     return {
       jours: serie,
       streak_jours: streak.streak_jours,
       derniere_connexion: streak.derniere_connexion,
       epreuves_consultees: compteurs.epreuves_consultees,
+      examens_nationaux_consultes: compteurs.examens_nationaux_consultes,
+      concours_consultes: compteurs.concours_consultes,
+      ressources_academiques_consultees: compteurs.ressources_academiques_consultees,
       soumissions: compteurs.soumissions,
+      kpis: {
+        epreuves_consultees: compteurs.epreuves_consultees,
+        examens_nationaux_consultes: compteurs.examens_nationaux_consultes,
+        concours_consultes: compteurs.concours_consultes,
+        ressources_academiques_consultees: compteurs.ressources_academiques_consultees,
+        quota_ressources_utilise: quotas.RESOURCE_VIEW?.used ?? 0,
+        quota_ressources_restant: quotas.RESOURCE_VIEW?.remaining ?? 0,
+        quota_ressources_pourcentage: quotas.RESOURCE_VIEW?.pourcentage ?? 0,
+        quota_ketsia_utilise: quotas.KETSIA_AI?.used ?? 0,
+        quota_ketsia_restant: quotas.KETSIA_AI?.remaining ?? 0,
+        quota_ketsia_pourcentage: quotas.KETSIA_AI?.pourcentage ?? 0,
+        soumissions: compteurs.soumissions,
+        streak_jours: streak.streak_jours,
+        derniere_connexion: streak.derniere_connexion,
+      },
+      quotas,
     };
   }
 
@@ -136,11 +163,19 @@ export class DashboardService {
   private async compteurs(utilisateurId: number, pays: string) {
     const [acces] = await this.dataSource.query(
       `
-      SELECT COUNT(DISTINCT resource_id)::int AS epreuves_consultees
+      SELECT
+        COUNT(DISTINCT resource_id) FILTER (WHERE resource_type = 'epreuve')::int
+          AS epreuves_consultees,
+        COUNT(DISTINCT resource_id) FILTER (WHERE resource_type = 'examen_national')::int
+          AS examens_nationaux_consultes,
+        COUNT(DISTINCT resource_id) FILTER (WHERE resource_type = 'concours')::int
+          AS concours_consultes,
+        COUNT(DISTINCT resource_type || ':' || resource_id)::int
+          AS ressources_academiques_consultees
       FROM resource_access
       WHERE utilisateur_id = $1
         AND pays = $2
-        AND resource_type = 'epreuve'
+        AND resource_type IN ('epreuve', 'examen_national', 'concours')
       `,
       [utilisateurId, pays],
     );
@@ -157,7 +192,32 @@ export class DashboardService {
 
     return {
       epreuves_consultees: Number(acces?.epreuves_consultees ?? 0),
+      examens_nationaux_consultes: Number(acces?.examens_nationaux_consultes ?? 0),
+      concours_consultes: Number(acces?.concours_consultes ?? 0),
+      ressources_academiques_consultees: Number(acces?.ressources_academiques_consultees ?? 0),
       soumissions: Number(soumissions?.soumissions ?? 0),
     };
+  }
+
+  private enrichirQuotas(etats: Record<string, any>) {
+    return Object.fromEntries(
+      Object.entries(etats ?? {}).map(([feature, quota]) => {
+        const used = Number(quota?.used ?? 0);
+        const limit = Number(quota?.limit ?? 0);
+        const remaining = Math.max(0, limit - used);
+        const pourcentage = limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : 0;
+
+        return [
+          feature,
+          {
+            ...quota,
+            used,
+            limit,
+            remaining,
+            pourcentage,
+          },
+        ];
+      }),
+    );
   }
 }

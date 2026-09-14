@@ -19,14 +19,14 @@ export class DashboardController {
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({
-    summary: "Activité Edukia de l'étudiant connecté (série journalière, série de connexions, compteurs)",
+    summary: "Activité Edukia de l'étudiant connecté (série journalière, série de connexions, compteurs, quotas)",
     description:
       "Alimente le tableau de bord « Pour toi » de l'app mobile. Appelé par le backend Kessiah, " +
       "qui relaie le jeton de l'étudiant et assemble ces données avec les siennes.",
   })
   @ApiResponse({
     status: 200,
-    description: 'Série journalière des accès, série de connexions en cours, épreuves consultées, soumissions',
+    description: 'KPI personnels mobile : consultations académiques, série de connexions, soumissions, quotas consommés',
   })
   async getMonActivite(
     @Request() req,
