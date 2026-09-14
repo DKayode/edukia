@@ -368,6 +368,8 @@ réponse **vide**.
 {
   "uuid": "8960c6bb-…",
   "statut": "ACTIF",
+  "abonnement_actif": true,
+  "ketsia_actif": true,
   "date_debut": "2026-09-06T02:05:11.000Z",
   "date_fin": "2026-10-06T02:05:11.000Z",
   "montant_paye": 2000,
@@ -375,6 +377,11 @@ réponse **vide**.
   "plan": { "code": "MENSUEL", "libelle": "Abonnement mensuel" }
 }
 ```
+
+`abonnement_actif` et `ketsia_actif` sont les champs à lire pour l'interface.
+Ils valent `true` seulement si l'abonnement est réellement actif au moment de la
+requête (`statut = ACTIF` et `date_fin` encore future). Un abonnement
+`EN_ATTENTE` renvoie ces deux champs à `false`.
 
 Les statuts : `EN_ATTENTE`, `ACTIF`, `EXPIRE`, `ANNULE`, `REMBOURSE`.
 

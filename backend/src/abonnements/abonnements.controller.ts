@@ -12,6 +12,9 @@ import { QuotaService } from './quota.service';
 import { EntitlementService, Feature } from './entitlement.service';
 import { ParrainageService } from './parrainage.service';
 import { PlansService } from './plans.service';
+import { StatutAbonnement } from './entities/abonnement.entity';
+
+type EtatQuotaMobile = Record<string, Record<string, any>>;
 
 @ApiTags('abonnements')
 @ApiBearerAuth()
@@ -39,8 +42,16 @@ export class AbonnementsController {
 
   @Get('mon-abonnement')
   @ApiOperation({ summary: 'Abonnement courant (actif, sinon en attente), ou null' })
-  monAbonnement(@Request() req) {
-    return this.abonnementsService.monAbonnement(req.user?.utilisateurId);
+  async monAbonnement(@Request() req) {
+    const abonnement = await this.abonnementsService.monAbonnement(req.user?.utilisateurId);
+    if (!abonnement) return null;
+
+    const abonnementActif = this.estAbonnementActif(abonnement);
+    return {
+      ...abonnement,
+      abonnement_actif: abonnementActif,
+      ketsia_actif: abonnementActif,
+    };
   }
 
   @Get('mes-abonnements')
@@ -80,8 +91,15 @@ export class AbonnementsController {
     summary: 'Consommation des quotas gratuits',
     description: 'Ressources distinctes déjà consultées et lancements de Ketsia, avec leurs plafonds.',
   })
-  mesQuotas(@CurrentCountry() pays: string, @Request() req) {
-    return this.quotas.etatPourUtilisateur(req.user?.utilisateurId, pays);
+  async mesQuotas(@CurrentCountry() pays: string, @Request() req) {
+    const utilisateurId = req.user?.utilisateurId;
+    const [etat, abonnementActif, estAdmin] = await Promise.all([
+      this.quotas.etatPourUtilisateur(utilisateurId, pays),
+      this.entitlement.hasActiveSubscription(utilisateurId),
+      this.entitlement.estAdmin(utilisateurId, req.user?.role),
+    ]);
+
+    return this.enrichirQuotasPourMobile(etat, { abonnementActif, estAdmin });
   }
 
   @Post('quota/ketsia')
@@ -134,5 +152,46 @@ export class AbonnementsController {
   })
   souscrire(@CurrentCountry() pays: string, @Request() req, @Body() dto: SouscrireDto) {
     return this.abonnementsService.souscrire(pays, req.user?.utilisateurId, dto);
+  }
+
+  private estAbonnementActif(abonnement: any): boolean {
+    return abonnement.statut === StatutAbonnement.ACTIF
+      && abonnement.date_fin !== null
+      && new Date(abonnement.date_fin).getTime() > Date.now();
+  }
+
+  private enrichirQuotasPourMobile(
+    etat: EtatQuotaMobile,
+    contexte: { abonnementActif: boolean; estAdmin: boolean },
+  ) {
+    return Object.fromEntries(
+      Object.entries(etat ?? {}).map(([feature, quota]) => {
+        const used = Number(quota?.used ?? 0);
+        const limit = Number(quota?.limit ?? 0);
+        const quotaActif = Boolean(quota?.est_actif);
+        const illimite = contexte.estAdmin || contexte.abonnementActif || !quotaActif;
+        const quotaApplicable = quotaActif && !contexte.abonnementActif && !contexte.estAdmin;
+        const reason = contexte.estAdmin
+          ? 'ADMIN'
+          : contexte.abonnementActif
+            ? 'SUBSCRIBED'
+            : quotaApplicable && used >= limit
+              ? 'QUOTA_EXCEEDED'
+              : 'FREE_QUOTA';
+
+        return [
+          feature,
+          {
+            ...quota,
+            quota_gratuit_actif: quotaActif,
+            abonnement_actif: contexte.abonnementActif,
+            acces_actif: reason !== 'QUOTA_EXCEEDED',
+            illimite,
+            quota_applicable: quotaApplicable,
+            reason,
+          },
+        ];
+      }),
+    );
   }
 }
