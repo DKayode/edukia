@@ -3,11 +3,13 @@ import { createHmac } from 'crypto';
 import { ModePaiement, PrestatairePaiement, StatutPaiement } from '../shared/paiement.enums';
 import { FedaPayProvider } from './fedapay.provider';
 import { KkiaPayProvider } from './kkiapay.provider';
+import { StripeProvider } from './stripe.provider';
 
-describe('Providers Paiement (KKiaPay & FedaPay)', () => {
+describe('Providers Paiement (KKiaPay, FedaPay, Stripe)', () => {
   let config: jest.Mocked<ConfigService>;
   let kkiapayProvider: KkiaPayProvider;
   let fedapayProvider: FedaPayProvider;
+  let stripeProvider: StripeProvider;
 
   beforeEach(() => {
     config = {
@@ -16,11 +18,14 @@ describe('Providers Paiement (KKiaPay & FedaPay)', () => {
         if (key === 'FEDAPAY_WEBHOOK_SECRET') return 'test-fedapay-secret';
         if (key === 'KKIAPAY_PUBLIC_KEY') return 'pk_test';
         if (key === 'FEDAPAY_SECRET_KEY') return 'sk_test';
+        if (key === 'STRIPE_SECRET_KEY') return 'sk_test_123';
+        if (key === 'STRIPE_WEBHOOK_SECRET') return 'whsec_test_123';
         return undefined;
       }),
     } as any;
     kkiapayProvider = new KkiaPayProvider(config);
     fedapayProvider = new FedaPayProvider(config);
+    stripeProvider = new StripeProvider(config);
   });
 
   describe('KKiaPayProvider', () => {
@@ -105,6 +110,72 @@ describe('Providers Paiement (KKiaPay & FedaPay)', () => {
       expect(parsed.devise).toBe('XOF');
       expect(parsed.devise).not.toBe('[object Object]');
       expect(parsed.statut).toBe(StatutPaiement.REUSSI);
+    });
+  });
+
+  describe('StripeProvider', () => {
+    it('parse un webhook checkout.session.completed payé en EUR', () => {
+      const payload = {
+        id: 'evt_stripe_999',
+        type: 'checkout.session.completed',
+        data: {
+          object: {
+            id: 'cs_test_123',
+            client_reference_id: 'EDK-REF-777',
+            payment_status: 'paid',
+            amount_total: 1500, // 15.00 EUR en centimes
+            currency: 'eur',
+            metadata: { reference: 'EDK-REF-777' },
+          },
+        },
+      };
+
+      const parsed = stripeProvider.parserWebhook(payload);
+
+      expect(parsed.statut).toBe(StatutPaiement.REUSSI);
+      expect(parsed.reference).toBe('EDK-REF-777');
+      expect(parsed.referencePrestataire).toBe('cs_test_123');
+      expect(parsed.montant).toBe(15); // Converti de centimes vers unités
+      expect(parsed.devise).toBe('EUR');
+    });
+
+    it('gère correctement une devise zero-decimal comme le XOF sans diviser par 100', () => {
+      const payload = {
+        id: 'evt_stripe_888',
+        type: 'checkout.session.completed',
+        data: {
+          object: {
+            id: 'cs_test_456',
+            payment_status: 'paid',
+            amount_total: 2500, // 2500 XOF direct (zero-decimal)
+            currency: 'xof',
+            metadata: { reference: 'EDK-REF-888' },
+          },
+        },
+      };
+
+      const parsed = stripeProvider.parserWebhook(payload);
+
+      expect(parsed.montant).toBe(2500);
+      expect(parsed.devise).toBe('XOF');
+    });
+
+    it('parse un statut expiré sur checkout.session.expired', () => {
+      const payload = {
+        id: 'evt_stripe_777',
+        type: 'checkout.session.expired',
+        data: {
+          object: {
+            id: 'cs_test_expired',
+            payment_status: 'unpaid',
+            amount_total: 1000,
+            currency: 'eur',
+          },
+        },
+      };
+
+      const parsed = stripeProvider.parserWebhook(payload);
+      expect(parsed.statut).toBe(StatutPaiement.EXPIRE);
     });
   });
 });

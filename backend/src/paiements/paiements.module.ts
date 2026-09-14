@@ -13,6 +13,7 @@ import { PaiementCredentialsService } from './paiement-credentials.service';
 import { PaiementsService } from './paiements.service';
 import { FedaPayProvider } from './providers/fedapay.provider';
 import { KkiaPayProvider } from './providers/kkiapay.provider';
+import { StripeProvider } from './providers/stripe.provider';
 import { PaiementProviderRegistry } from './providers/paiement-provider.registry';
 import { PAIEMENT_PROVIDERS } from './shared/paiement.tokens';
 import { WebhooksController } from './webhooks.controller';
@@ -29,10 +30,11 @@ import { WebhooksController } from './webhooks.controller';
     PaiementCredentialsService,
     KkiaPayProvider,
     FedaPayProvider,
+    StripeProvider,
     {
       provide: PAIEMENT_PROVIDERS,
-      useFactory: (kkia: KkiaPayProvider, feda: FedaPayProvider) => [kkia, feda],
-      inject: [KkiaPayProvider, FedaPayProvider],
+      useFactory: (kkia: KkiaPayProvider, feda: FedaPayProvider, stripe: StripeProvider) => [kkia, feda, stripe],
+      inject: [KkiaPayProvider, FedaPayProvider, StripeProvider],
     },
     PaiementProviderRegistry,
   ],

@@ -19,15 +19,16 @@ Grâce aux endpoints unifiés du backend Edukia, **le cycle de vie et la confirm
 
 ### Tableau comparatif
 
-| Critère | KKiaPay | FedaPay |
-| :--- | :--- | :--- |
-| **Méthode d'affichage** | SDK Flutter natif (`kkiapay_flutter_sdk`) | WebView (`webview_flutter`) |
-| **Clé transmise au mobile** | Clé publique dans `payload_initiation.widget.key` | Aucune clé requise |
-| **Détection du succès** | Callback du SDK : `response['transactionId']` | Interception de la redirection `return_url` |
-| **Paramètre ID extrait** | `transactionId` | Paramètre d'URL `id` |
-| **Endpoint de confirmation** | `POST /paiements/{uuid}/transaction-prestataire` | **Le même :** `POST /paiements/{uuid}/transaction-prestataire` |
-| **Délai d'activation** | Immédiat (vérifié en direct par le backend) | Immédiat (vérifié en direct par le backend) |
-| **Filet de sécurité** | Webhook PSP + Cron backend 30 min | Webhook PSP + Cron backend 30 min |
+| Critère | KKiaPay | FedaPay | Stripe (CB & Diaspora) |
+| :--- | :--- | :--- | :--- |
+| **Moyens supportés** | Mobile Money (MTN, Moov) | Mobile Money & Cartes | Cartes CB, Visa, Mastercard, Apple Pay |
+| **Méthode d'affichage** | SDK Flutter natif (`kkiapay_flutter_sdk`) | WebView (`webview_flutter`) | **WebView (identique à FedaPay)** |
+| **Clé transmise au mobile** | Clé publique dans `payload_initiation.widget.key` | Aucune clé requise | Aucune clé requise |
+| **Détection du succès** | Callback du SDK : `response['transactionId']` | Interception redirection `return_url` | **Interception redirection `return_url`** |
+| **Paramètre ID extrait** | `transactionId` | Paramètre d'URL `id` | **Paramètre d'URL `id` (Session ID)** |
+| **Endpoint de confirmation** | `POST /paiements/{uuid}/transaction-prestataire` | `POST /paiements/{uuid}/transaction-prestataire` | **Le même endpoint unifié** |
+| **Délai d'activation** | Immédiat | Immédiat | **Immédiat** |
+| **Filet de sécurité** | Webhook PSP + Cron backend 30 min | Webhook PSP + Cron backend 30 min | Webhook PSP + Cron backend 30 min |
 
 ---
 

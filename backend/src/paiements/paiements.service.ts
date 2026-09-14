@@ -37,6 +37,7 @@ const RANG_STATUT: Record<StatutPaiement, number> = {
 const PRESTATAIRES_PUBLICS: Partial<Record<PrestatairePaiement, string>> = {
   [PrestatairePaiement.KKIAPAY]: 'KKiaPay',
   [PrestatairePaiement.FEDAPAY]: 'FedaPay',
+  [PrestatairePaiement.STRIPE]: 'Stripe',
 };
 
 @Injectable()
@@ -461,7 +462,28 @@ export class PaiementsService {
     mode?: ModePaiement,
   ): Partial<ConfigurationPaiement>[] {
     const prestataireDefaut = this.config.get<string>('PAIEMENT_PRESTATAIRE_DEFAUT', 'KKIAPAY') as PrestatairePaiement;
-    if (prestataire && prestataire !== PrestatairePaiement.KKIAPAY && prestataire !== PrestatairePaiement.FEDAPAY) return [];
+    if (prestataire && prestataire !== PrestatairePaiement.KKIAPAY && prestataire !== PrestatairePaiement.FEDAPAY && prestataire !== PrestatairePaiement.STRIPE) return [];
+    if (prestataire === PrestatairePaiement.STRIPE || (!prestataire && prestataireDefaut === PrestatairePaiement.STRIPE)) {
+      const secretKey = this.config.get<string>('STRIPE_SECRET_KEY');
+      const publicKey = this.config.get<string>('STRIPE_PUBLIC_KEY');
+      if (secretKey) {
+        const modeDefaut = mode ?? (this.config.get<string>('PAIEMENT_MODE', ModePaiement.SANDBOX) as ModePaiement);
+        return [{
+          pays,
+          prestataire: PrestatairePaiement.STRIPE,
+          mode: modeDefaut,
+          devise: this.config.get<string>('STRIPE_DEVISE_DEFAUT', 'EUR'),
+          montant_min: null,
+          montant_max: null,
+          est_actif: true,
+          credentials_chiffres: null,
+          credentials_masquees: {
+            public_key: publicKey ? this.credentials.mask({ public_key: publicKey }).public_key : undefined,
+            secret_key: this.credentials.mask({ secret_key: secretKey }).secret_key,
+          },
+        }];
+      }
+    }
     if (prestataire === PrestatairePaiement.FEDAPAY || (!prestataire && prestataireDefaut === PrestatairePaiement.FEDAPAY)) {
       const secretKey = this.config.get<string>('FEDAPAY_SECRET_KEY');
       const publicKey = this.config.get<string>('FEDAPAY_PUBLIC_KEY');
