@@ -1,7 +1,6 @@
 import { Controller, Get, Query, Request, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { CurrentCountry } from '../common/decorators/current-country.decorator';
 import { DashboardService } from './dashboard.service';
 import { ActiviteQueryDto } from './dto/activite-query.dto';
 
@@ -30,9 +29,8 @@ export class DashboardController {
   })
   async getMonActivite(
     @Request() req,
-    @CurrentCountry() pays: string,
     @Query() query: ActiviteQueryDto,
   ) {
-    return this.dashboardService.getActivite(req.user.utilisateurId, pays, query.jours);
+    return this.dashboardService.getActivite(req.user.utilisateurId, query.jours);
   }
 }

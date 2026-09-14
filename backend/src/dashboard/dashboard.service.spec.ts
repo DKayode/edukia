@@ -15,6 +15,9 @@ describe('DashboardService', () => {
         if (sql.includes('generate_series')) {
           return [{ date: '2026-09-14', acces: 2 }];
         }
+        if (sql.includes('FROM utilisateurs')) {
+          return [{ pays: 'senegal' }];
+        }
         if (sql.includes('AS streak_jours')) {
           return [{ streak_jours: 3, derniere_connexion: '2026-09-14T08:00:00.000Z' }];
         }
@@ -54,7 +57,7 @@ describe('DashboardService', () => {
   });
 
   it("renvoie les KPI de l'utilisateur actif, y compris ses quotas", async () => {
-    const activite = await service.getActivite(42, 'benin', 28);
+    const activite = await service.getActivite(42, 28);
 
     expect(activite).toMatchObject({
       epreuves_consultees: 4,
@@ -79,19 +82,33 @@ describe('DashboardService', () => {
         KETSIA_AI: { used: 1, limit: 1, remaining: 0, pourcentage: 100 },
       },
     });
-    expect(quotas.etatPourUtilisateur).toHaveBeenCalledWith(42, 'benin');
+    expect(quotas.etatPourUtilisateur).toHaveBeenCalledWith(42, 'senegal');
   });
 
-  it("garde les compteurs personnels filtrés sur l'utilisateur connecté", async () => {
-    await service.getActivite(42, 'benin', 28);
+  it("garde les compteurs personnels filtrés uniquement sur l'utilisateur connecté", async () => {
+    await service.getActivite(42, 28);
 
     const acces = requetes.find((r) => r.sql.includes('AS epreuves_consultees'))!;
     const soumissions = requetes.find((r) => r.sql.includes('AS soumissions'))!;
 
     expect(acces.sql).toContain('utilisateur_id = $1');
     expect(acces.sql).toContain("resource_type IN ('epreuve', 'examen_national', 'concours')");
-    expect(acces.params).toEqual([42, 'benin']);
+    expect(acces.sql).not.toContain('AND pays = $2');
+    expect(acces.params).toEqual([42]);
     expect(soumissions.sql).toContain('soumis_par_id = $1');
-    expect(soumissions.params).toEqual([42, 'benin']);
+    expect(soumissions.sql).not.toContain('AND pays = $2');
+    expect(soumissions.params).toEqual([42]);
+  });
+
+  it("utilise le pays de l'utilisateur seulement pour la règle de quota", async () => {
+    await service.getActivite(42, 7);
+
+    const paysUtilisateur = requetes.find((r) => r.sql.includes('FROM utilisateurs'))!;
+    const serie = requetes.find((r) => r.sql.includes('generate_series'))!;
+
+    expect(paysUtilisateur.params).toEqual([42]);
+    expect(serie.sql).not.toContain('ra.pays');
+    expect(serie.params).toEqual([42, 7]);
+    expect(quotas.etatPourUtilisateur).toHaveBeenCalledWith(42, 'senegal');
   });
 });

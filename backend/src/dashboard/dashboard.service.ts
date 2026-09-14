@@ -19,6 +19,8 @@ const JOURS_PAR_DEFAUT = 28;
  * comme le fait SubmissionsStatsService.
  * Les quotas personnels, eux, viennent de QuotaService : ce sont les mêmes
  * chiffres que `/abonnements/mes-quotas`, adossés à `quota_consommations`.
+ * Le pays du compte ne sert ici qu'à choisir la configuration de quota
+ * applicable ; les compteurs d'activité sont filtrés par `utilisateur_id`.
  *
  * À la différence de KpiService, qui compte des utilisateurs distincts pour un
  * rapport pays, tout ici est filtré sur un seul `utilisateur_id`.
@@ -30,13 +32,14 @@ export class DashboardService {
     private readonly quotas: QuotaService,
   ) {}
 
-  async getActivite(utilisateurId: number, pays: string, jours?: number) {
+  async getActivite(utilisateurId: number, jours?: number) {
     const profondeur = jours ?? JOURS_PAR_DEFAUT;
+    const pays = await this.paysUtilisateur(utilisateurId);
 
     const [serie, streak, compteurs, etatQuotas] = await Promise.all([
-      this.serieJournaliere(utilisateurId, pays, profondeur),
+      this.serieJournaliere(utilisateurId, profondeur),
       this.streak(utilisateurId),
-      this.compteurs(utilisateurId, pays),
+      this.compteurs(utilisateurId),
       this.quotas.etatPourUtilisateur(utilisateurId, pays),
     ]);
     const quotas = this.enrichirQuotas(etatQuotas);
@@ -69,6 +72,20 @@ export class DashboardService {
     };
   }
 
+  private async paysUtilisateur(utilisateurId: number) {
+    const [ligne] = await this.dataSource.query(
+      `
+      SELECT pays
+      FROM utilisateurs
+      WHERE id = $1
+      LIMIT 1
+      `,
+      [utilisateurId],
+    );
+
+    return ligne?.pays ?? 'benin';
+  }
+
   /**
    * Un point par jour de la fenêtre, y compris les jours sans activité.
    *
@@ -77,31 +94,30 @@ export class DashboardService {
    * appelant à refaire le même calendrier — avec le même risque de décalage
    * d'un jour.
    */
-  private async serieJournaliere(utilisateurId: number, pays: string, jours: number) {
+  private async serieJournaliere(utilisateurId: number, jours: number) {
     const lignes = await this.dataSource.query(
       `
       -- COUNT sur utilisateur_id et non sur id : la définition de
       -- resource_access vit dans une migration hors dépôt, et les seules
       -- colonnes dont l'usage existant atteste sont utilisateur_id,
-      -- resource_type, resource_id, pays et accessed_at. Sur un LEFT JOIN, le
+      -- resource_type, resource_id et accessed_at. Sur un LEFT JOIN, le
       -- compte est le même — les jours sans accès donnent 0.
       SELECT
         to_char(j.jour, 'YYYY-MM-DD')                    AS date,
         COUNT(ra.utilisateur_id)::int                    AS acces
       FROM generate_series(
-        CURRENT_DATE - ($3::int - 1),
+        CURRENT_DATE - ($2::int - 1),
         CURRENT_DATE,
         interval '1 day'
       ) AS j(jour)
       LEFT JOIN resource_access ra
         ON ra.utilisateur_id = $1
-       AND ra.pays = $2
        AND ra.accessed_at >= j.jour
        AND ra.accessed_at <  j.jour + interval '1 day'
       GROUP BY j.jour
       ORDER BY j.jour
       `,
-      [utilisateurId, pays, jours],
+      [utilisateurId, jours],
     );
     return lignes;
   }
@@ -160,7 +176,7 @@ export class DashboardService {
     };
   }
 
-  private async compteurs(utilisateurId: number, pays: string) {
+  private async compteurs(utilisateurId: number) {
     const [acces] = await this.dataSource.query(
       `
       SELECT
@@ -174,10 +190,9 @@ export class DashboardService {
           AS ressources_academiques_consultees
       FROM resource_access
       WHERE utilisateur_id = $1
-        AND pays = $2
         AND resource_type IN ('epreuve', 'examen_national', 'concours')
       `,
-      [utilisateurId, pays],
+      [utilisateurId],
     );
 
     const [soumissions] = await this.dataSource.query(
@@ -185,9 +200,8 @@ export class DashboardService {
       SELECT COUNT(*)::int AS soumissions
       FROM epreuve_submissions
       WHERE soumis_par_id = $1
-        AND pays = $2
       `,
-      [utilisateurId, pays],
+      [utilisateurId],
     );
 
     return {

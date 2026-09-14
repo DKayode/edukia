@@ -6,25 +6,20 @@ connecté dans l'application mobile.
 ## Endpoint
 
 ```http
-GET /dashboard/moi/activite?country=benin&jours=28
+GET /dashboard/moi/activite?jours=28
 Authorization: Bearer <access_token>
 ```
-
-`country` est optionnel. S'il est absent, le serveur utilise `benin` par défaut
-sur cette route. Le mobile doit quand même l'envoyer quand l'utilisateur a choisi
-un pays, pour éviter d'afficher par erreur les compteurs du Bénin.
-
-Pourquoi il existe ici : Edukia est multi-pays. Le même utilisateur peut ouvrir
-l'app sur un catalogue Bénin, Sénégal, Congo, etc. Les ressources consultées,
-les soumissions et les réglages de quotas sont stockés avec un champ `pays`.
-`country` dit donc au serveur : "donne-moi les KPI personnels de cet utilisateur
-dans le pays actuellement sélectionné dans l'app".
 
 `jours` règle la profondeur de la série journalière, entre 1 et 365. Sans
 `jours`, le serveur renvoie 28 jours.
 
-L'identité vient toujours du JWT. Le mobile ne transmet jamais d'`utilisateur_id`
-pour cette route.
+Le mobile n'envoie ni `country`, ni `utilisateur_id`. L'identité vient toujours
+du JWT (`Authorization: Bearer ...`) et les KPI sont ceux de cet utilisateur,
+pas ceux d'un pays ni ceux du dashboard admin.
+
+Les compteurs personnels sont filtrés uniquement par `utilisateur_id`. Le pays
+du compte (`utilisateurs.pays`) sert seulement à charger les règles de quota
+applicables au compte.
 
 ## Quand l'app doit l'appeler
 
@@ -99,7 +94,7 @@ dashboard personnel ou après une action qui peut changer les compteurs :
 ## Champs à afficher
 
 `kpis.epreuves_consultees` : nombre d'épreuves distinctes consultées par
-l'utilisateur actif, dans le pays courant.
+l'utilisateur actif.
 
 `kpis.examens_nationaux_consultes` : nombre d'examens nationaux distincts
 consultés par l'utilisateur actif.
@@ -150,7 +145,7 @@ lit les champs historiques continue de fonctionner.
 Les compteurs de consultation (`epreuves_consultees`,
 `examens_nationaux_consultes`, `concours_consultes`,
 `ressources_academiques_consultees`) sont des compteurs distincts all-time par
-pays. Ils ne se remettent pas à zéro chaque mois.
+utilisateur. Ils ne se remettent pas à zéro chaque mois.
 
 Les quotas viennent de `quota_consommations`. Ils suivent leur propre période,
 par exemple `MENSUEL`, et peuvent donc revenir à zéro alors que les compteurs de

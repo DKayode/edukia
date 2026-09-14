@@ -113,6 +113,8 @@ async function bootstrap() {
     op.parameters = op.parameters || [];
     if (!hasCountryQuery(op)) op.parameters.push(COUNTRY_PARAM);
   };
+  const skipCountryQuery = (pathKey: string) =>
+    pathKey === '/dashboard/moi/activite';
   const injectPaysIntoSchema = (schema: any) => {
     if (!schema) return schema;
     if (schema.$ref) {
@@ -133,7 +135,7 @@ async function bootstrap() {
 
     for (const method of ['get'] as const) {
       const op = (pathItem as any)[method];
-      if (op) addCountryQuery(op);
+      if (op && !skipCountryQuery(pathKey)) addCountryQuery(op);
     }
 
     for (const method of ['post', 'put', 'patch'] as const) {
