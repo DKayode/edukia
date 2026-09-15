@@ -305,10 +305,16 @@ jobs:
 
             DB_URL="$(grep '^DATABASE_URL=' .env | cut -d= -f2-)"
 
-            # Migrations minimales requises par les paiements entrants. Le repo
-            # SQL canonique reste edukia-db, mais la prod ne lance pas ce repo
-            # automatiquement au deploy ; ce bloc idempotent empêche un backend
-            # neuf de démarrer sur un schéma trop ancien.
+            # Appliquer la migration SQL canonique depuis edukia-db avant de
+            # redémarrer le backend. Le déploiement du backend ne clone pas le
+            # dépôt de schéma, donc cette étape garantit que le pod utilise la
+            # même règle que la branche main de edukia-db.
+            timeout 180 curl --fail --silent --show-error \
+              https://raw.githubusercontent.com/DKayode/edukia-db/main/migrations/095_fix_multiple_active_payment_providers.sql \
+              | timeout 180 docker run --rm -i postgres:16-alpine \
+                  psql "$DB_URL" -v ON_ERROR_STOP=1
+
+            # Colonnes minimales requises par les paiements entrants.
             timeout 180 docker run --rm postgres:16-alpine \
               psql "$DB_URL" -v ON_ERROR_STOP=1 \
               -c "ALTER TABLE public.paiements ADD COLUMN IF NOT EXISTS mode varchar(20) NOT NULL DEFAULT 'sandbox';" \
