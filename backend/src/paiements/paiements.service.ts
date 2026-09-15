@@ -233,16 +233,8 @@ export class PaiementsService {
       config.credentials_masquees = this.credentials.mask(fusion);
     }
 
-    return this.dataSource.transaction(async (manager) => {
-      if (config.est_actif) {
-        await manager.getRepository(ConfigurationPaiement).update(
-          { pays, prestataire: config.prestataire, est_actif: true },
-          { est_actif: false },
-        );
-      }
-      const sauvegarde = await manager.getRepository(ConfigurationPaiement).save(config);
-      return this.configurationPublique(sauvegarde);
-    });
+    const sauvegarde = await this.configurations.save(config);
+    return this.configurationPublique(sauvegarde);
   }
 
   async confirmerManuellement(pays: string, uuid: string, dto: { montant?: number; reference_prestataire?: string; commentaire?: string }) {
