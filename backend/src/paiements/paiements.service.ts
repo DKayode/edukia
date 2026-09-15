@@ -221,7 +221,7 @@ export class PaiementsService {
     const existante = await this.configurations.findOne({ where: { pays, prestataire: dto.prestataire, mode } });
     const config = existante ?? this.configurations.create({ pays, prestataire: dto.prestataire, mode });
     config.mode = dto.mode ?? config.mode ?? ModePaiement.SANDBOX;
-    config.devise = dto.devise ?? config.devise ?? 'XOF';
+    config.devise = dto.devise ?? config.devise ?? (dto.prestataire === PrestatairePaiement.STRIPE ? 'EUR' : 'XOF');
     config.montant_min = dto.montant_min !== undefined ? dto.montant_min : config.montant_min ?? null;
     config.montant_max = dto.montant_max !== undefined ? dto.montant_max : config.montant_max ?? null;
     config.est_actif = dto.est_actif ?? config.est_actif ?? false;
@@ -235,7 +235,10 @@ export class PaiementsService {
 
     return this.dataSource.transaction(async (manager) => {
       if (config.est_actif) {
-        await manager.getRepository(ConfigurationPaiement).update({ pays, est_actif: true }, { est_actif: false });
+        await manager.getRepository(ConfigurationPaiement).update(
+          { pays, prestataire: config.prestataire, est_actif: true },
+          { est_actif: false },
+        );
       }
       const sauvegarde = await manager.getRepository(ConfigurationPaiement).save(config);
       return this.configurationPublique(sauvegarde);
@@ -372,7 +375,11 @@ export class PaiementsService {
       ? await this.paiements.findOne({ where: { prestataire, reference_prestataire: evt.referencePrestataire } })
         ?? (evt.reference ? await this.paiements.findOne({ where: { prestataire, reference: evt.reference } }) : null)
       : await this.paiements.findOne({ where: { prestataire, reference: evt.reference } });
-    if (!paiement) throw new NotFoundException('Paiement introuvable');
+    if (!paiement) {
+      this.logger.warn(`Webhook ${prestataire} ignoré : aucun paiement trouvé (ref=${evt.reference}, refPrestataire=${evt.referencePrestataire})`);
+      await this.webhooks.update(webhookId, { traite: true, erreur_traitement: 'PAIEMENT_INTROUVABLE_IGNORE' });
+      return;
+    }
     if (STATUTS_FINAUX.has(paiement.statut)) return;
 
     // En mode widget KKiaPay, reference_prestataire est null a l'initiation.

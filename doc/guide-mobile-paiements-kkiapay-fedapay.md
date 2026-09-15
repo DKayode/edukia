@@ -1,6 +1,6 @@
-# Guide Intégration Mobile : KKiaPay vs FedaPay (Flutter)
+# Guide Intégration Mobile : KKiaPay, FedaPay & Stripe (Flutter)
 
-Ce guide est destiné au développeur mobile Flutter. Il détaille pas à pas l'intégration des deux prestataires de paiement supportés par Edukia : **KKiaPay** et **FedaPay**, en mettant en évidence leurs différences et la manière d'obtenir un comportement fluide et immédiat pour les deux.
+Ce guide est destiné au développeur mobile Flutter. Il détaille pas à pas l'intégration des prestataires de paiement supportés par Edukia : **KKiaPay** (Mobile Money via SDK), **FedaPay** (Mobile Money / Cartes locales via WebView) et **Stripe** (Cartes bancaires internationales, Apple Pay / Google Pay via WebView).
 
 ---
 
@@ -243,11 +243,21 @@ class _FedaPayCheckoutPageState extends State<FedaPayCheckoutPage> {
 }
 ```
 
+> **Note importante pour le dev mobile (Stripe) :**  
+> Ce même composant WebView fonctionne **à la fois pour FedaPay et Stripe** !  
+> Lorsque l'utilisateur choisit **Stripe**, le backend renvoie également une `url_paiement` (`https://checkout.stripe.com/...`).  
+> À la fin du paiement, Stripe redirige vers la même URL avec `?id={SESSION_ID}&status=approved` que la WebView intercepte exactement de la même façon.
+>
+> **Cartes de test Stripe (utilisables sur simulateur) :**
+> - Carte Réussie : `4242 4242 4242 4242` (Date future, CVC `123`)
+> - Carte Refusée : `4000 0000 0000 0035`
+> - Solde insuffisant : `4000 0000 0000 9995`
+
 ---
 
 ## 5. L'Appel Commun de Confirmation Backend
 
-Que ce soit le `transactionId` issu du SDK KKiaPay ou le `id` intercepté dans l'URL FedaPay, **l'appel API backend est strictement le même** :
+Que ce soit le `transactionId` (KKiaPay SDK) ou le `id` (FedaPay ou Stripe via WebView), **l'appel API backend est strictement le même** :
 
 ```http
 POST /paiements/{uuid}/transaction-prestataire

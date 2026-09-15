@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import Stripe from 'stripe';
+import type Stripe from 'stripe';
 import { BaseHttpPaiementProvider } from './base-http.provider';
 import { InitierPaiementCommande, PaiementProviderPort, ResultatInitiationPaiement, EvenementPaiementParse } from '../shared/paiement.ports';
 import { MethodePaiement, ModePaiement, PrestatairePaiement, StatutPaiement } from '../shared/paiement.enums';
@@ -19,10 +19,16 @@ export class StripeProvider extends BaseHttpPaiementProvider implements Paiement
     super(config);
   }
 
+  private getStripe(secretKey: string): Stripe {
+    const StripeLib: any = require('stripe');
+    const StripeConstructor = StripeLib.default || StripeLib;
+    return new StripeConstructor(secretKey);
+  }
+
   async initier(cmd: InitierPaiementCommande): Promise<ResultatInitiationPaiement> {
     const credentials = cmd.credentials ?? {};
     const secretKey = credentials.secret_key ?? this.config.get<string>('STRIPE_SECRET_KEY') ?? '';
-    const stripe = new Stripe(secretKey);
+    const stripe = this.getStripe(secretKey);
 
     const devise = cmd.devise.toLowerCase();
     const unitAmount = this.toStripeAmount(cmd.montant, devise);
@@ -44,6 +50,12 @@ export class StripeProvider extends BaseHttpPaiementProvider implements Paiement
           quantity: 1,
         },
       ],
+      payment_intent_data: {
+        metadata: {
+          ...cmd.metadata,
+          reference: cmd.reference,
+        },
+      },
       success_url: `${cmd.urlRetour}&id={CHECKOUT_SESSION_ID}&status=approved`,
       cancel_url: `${cmd.urlRetour}&status=canceled`,
       metadata: {
@@ -68,7 +80,7 @@ export class StripeProvider extends BaseHttpPaiementProvider implements Paiement
     if (!sigHeader || !webhookSecret || !secretKey) return false;
 
     try {
-      const stripe = new Stripe(secretKey);
+      const stripe = this.getStripe(secretKey);
       stripe.webhooks.constructEvent(rawBody, sigHeader, webhookSecret);
       return true;
     } catch {
@@ -89,7 +101,7 @@ export class StripeProvider extends BaseHttpPaiementProvider implements Paiement
       statut = StatutPaiement.ECHOUE;
     }
 
-    const currency = session?.currency ? session.currency.toUpperCase() : 'XOF';
+    const currency = session?.currency ? session.currency.toUpperCase() : 'EUR';
     const rawAmount = session?.amount_total ?? session?.amount ?? 0;
     const montant = this.fromStripeAmount(rawAmount, currency);
 
@@ -106,13 +118,13 @@ export class StripeProvider extends BaseHttpPaiementProvider implements Paiement
 
   async verifierStatut(referencePrestataire: string, credentials?: Record<string, string>, mode?: ModePaiement) {
     const secretKey = credentials?.secret_key ?? this.config.get<string>('STRIPE_SECRET_KEY') ?? '';
-    const stripe = new Stripe(secretKey);
+    const stripe = this.getStripe(secretKey);
 
     const session = await stripe.checkout.sessions.retrieve(referencePrestataire);
     const isPaid = session.payment_status === 'paid';
     const isExpired = session.status === 'expired';
     const statut = isPaid ? StatutPaiement.REUSSI : (isExpired ? StatutPaiement.EXPIRE : StatutPaiement.EN_ATTENTE);
-    const devise = (session.currency ?? 'xof').toUpperCase();
+    const devise = (session.currency ?? 'eur').toUpperCase();
     const montant = this.fromStripeAmount(session.amount_total ?? 0, devise);
 
     return { statut, montant, devise };
