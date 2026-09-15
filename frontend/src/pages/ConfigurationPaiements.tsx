@@ -216,7 +216,7 @@ export default function ConfigurationPaiements() {
               <div className="flex items-center justify-between rounded-lg border p-3">
                 <div>
                   <p className="text-sm font-medium">Prestataire actif</p>
-                  <p className="text-xs text-muted-foreground">Un seul prestataire actif est conservé par pays.</p>
+                  <p className="text-xs text-muted-foreground">Active ou désactive ce prestataire pour ce pays. Plusieurs prestataires peuvent être actifs en même temps.</p>
                 </div>
                 <Switch checked={draft.est_actif} onCheckedChange={(est_actif) => setDraft((d) => ({ ...d, est_actif }))} />
               </div>
@@ -259,5 +259,12 @@ function fromConfig(config: ConfigurationPaiement): Draft {
 }
 
 function messageErreur(error: unknown): string {
-  return error instanceof Error ? error.message : "Enregistrement impossible";
+  if (error instanceof Error) return error.message;
+  if (typeof error === "object" && error !== null) {
+    const err = error as { message?: string | string[]; error?: string };
+    if (Array.isArray(err.message)) return err.message.join(", ");
+    if (typeof err.message === "string") return err.message;
+    if (typeof err.error === "string") return err.error;
+  }
+  return "Enregistrement impossible";
 }
