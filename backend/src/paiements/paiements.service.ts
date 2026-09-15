@@ -38,6 +38,7 @@ const PRESTATAIRES_PUBLICS: Partial<Record<PrestatairePaiement, string>> = {
   [PrestatairePaiement.KKIAPAY]: 'KKiaPay',
   [PrestatairePaiement.FEDAPAY]: 'FedaPay',
   [PrestatairePaiement.STRIPE]: 'Stripe',
+  [PrestatairePaiement.REVENUECAT]: 'RevenueCat',
 };
 
 @Injectable()
@@ -398,7 +399,7 @@ export class PaiementsService {
 
     const config = await this.configurationPourPaiement(paiement);
     const refVerif = paiement.reference_prestataire ?? evt.referencePrestataire;
-    const statutVerifie = refVerif
+    const statutVerifie = refVerif && prestataire !== PrestatairePaiement.REVENUECAT
       ? await provider.verifierStatut(refVerif, this.credentials.decrypt(config?.credentials_chiffres), paiement.mode)
       : { statut: evt.statut, montant: evt.montant, devise: evt.devise };
     paiement.methode = evt.methode ?? paiement.methode;
@@ -476,7 +477,7 @@ export class PaiementsService {
     mode?: ModePaiement,
   ): Partial<ConfigurationPaiement>[] {
     const prestataireDefaut = this.config.get<string>('PAIEMENT_PRESTATAIRE_DEFAUT', 'KKIAPAY') as PrestatairePaiement;
-    if (prestataire && prestataire !== PrestatairePaiement.KKIAPAY && prestataire !== PrestatairePaiement.FEDAPAY && prestataire !== PrestatairePaiement.STRIPE) return [];
+    if (prestataire && ![PrestatairePaiement.KKIAPAY, PrestatairePaiement.FEDAPAY, PrestatairePaiement.STRIPE, PrestatairePaiement.REVENUECAT].includes(prestataire)) return [];
     if (prestataire === PrestatairePaiement.STRIPE || (!prestataire && prestataireDefaut === PrestatairePaiement.STRIPE)) {
       const secretKey = this.config.get<string>('STRIPE_SECRET_KEY');
       const publicKey = this.config.get<string>('STRIPE_PUBLIC_KEY');

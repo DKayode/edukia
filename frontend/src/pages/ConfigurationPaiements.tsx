@@ -52,6 +52,15 @@ const PROVIDERS: Record<PrestatairePaiement, { label: string; fields: { key: str
       { key: "webhook_secret", label: "Secret webhook (whsec_...)" },
     ],
   },
+  REVENUECAT: {
+    label: "RevenueCat",
+    fields: [
+      { key: "secret_key", label: "Clé secrète API" },
+      { key: "webhook_authorization", label: "Authorization webhook" },
+      { key: "webhook_secret", label: "Secret HMAC webhook" },
+      { key: "entitlement_id", label: "Entitlement ID" },
+    ],
+  },
 };
 
 const MODES: { value: ModePaiement; label: string }[] = [
@@ -62,7 +71,7 @@ const MODES: { value: ModePaiement; label: string }[] = [
 const emptyDraft = (prestataire: PrestatairePaiement): Draft => ({
   prestataire,
   mode: "sandbox",
-  devise: prestataire === "STRIPE" ? "EUR" : "XOF",
+  devise: prestataire === "STRIPE" || prestataire === "REVENUECAT" ? "EUR" : "XOF",
   montant_min: "",
   montant_max: "",
   est_actif: false,

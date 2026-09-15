@@ -6,7 +6,7 @@ export class PrestataireDisponibleDto {
   pays: string;
 
   @ApiProperty({
-    enum: [PrestatairePaiement.KKIAPAY, PrestatairePaiement.FEDAPAY, PrestatairePaiement.STRIPE],
+    enum: [PrestatairePaiement.KKIAPAY, PrestatairePaiement.FEDAPAY, PrestatairePaiement.STRIPE, PrestatairePaiement.REVENUECAT],
     example: PrestatairePaiement.KKIAPAY,
   })
   prestataire: PrestatairePaiement;

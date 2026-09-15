@@ -314,6 +314,11 @@ jobs:
               | timeout 180 docker run --rm -i postgres:16-alpine \
                   psql "$DB_URL" -v ON_ERROR_STOP=1
 
+            timeout 180 curl --fail --silent --show-error \
+              https://raw.githubusercontent.com/DKayode/edukia-db/main/migrations/096_add_revenuecat_provider.sql \
+              | timeout 180 docker run --rm -i postgres:16-alpine \
+                  psql "$DB_URL" -v ON_ERROR_STOP=1
+
             # Colonnes minimales requises par les paiements entrants.
             timeout 180 docker run --rm postgres:16-alpine \
               psql "$DB_URL" -v ON_ERROR_STOP=1 \
