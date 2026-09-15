@@ -233,8 +233,23 @@ export class PaiementsService {
       config.credentials_masquees = this.credentials.mask(fusion);
     }
 
-    const sauvegarde = await this.configurations.save(config);
-    return this.configurationPublique(sauvegarde);
+    return this.dataSource.transaction(async (manager) => {
+      // Si on active cette config, desactiver les autres modes du meme prestataire dans le meme pays
+      // Cela permet d'avoir plusieurs prestataires actifs (KKIAPAY + FEDAPAY + STRIPE)
+      // mais un seul mode (sandbox OU live) actif par prestataire
+      if (config.est_actif) {
+        await manager.getRepository(ConfigurationPaiement).update(
+          { 
+            pays: config.pays,
+            prestataire: config.prestataire,
+            est_actif: true
+          },
+          { est_actif: false }
+        );
+      }
+      const sauvegarde = await manager.getRepository(ConfigurationPaiement).save(config);
+      return this.configurationPublique(sauvegarde);
+    });
   }
 
   async confirmerManuellement(pays: string, uuid: string, dto: { montant?: number; reference_prestataire?: string; commentaire?: string }) {
