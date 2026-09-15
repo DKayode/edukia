@@ -15,6 +15,10 @@ import { OwnerOrAdminGuard } from '../auth/guards/owner-or-admin.guard';
 import { PaginationDto } from '../common/dto/pagination.dto';
 import { CurrentCountry } from '../common/decorators/current-country.decorator';
 import { ProfilCompletionService } from './profil-completion.service';
+import { PermissionGuard } from '../auth/guards/permission.guard';
+import { Permissions } from '../auth/decorators/permissions.decorator';
+import { AdminPermission } from './entities/utilisateur.entity';
+import { UpdateAdminPermissionsDto } from './dto/update-admin-permissions.dto';
 
 @ApiTags('utilisateurs')
 @Controller('utilisateurs')
@@ -26,7 +30,10 @@ export class UtilisateursController {
 
   @Post('inscription')
   async inscription(@CurrentCountry() pays: string, @Body() inscriptionDto: InscriptionDto) {
-    return this.utilisateursService.inscription(pays, inscriptionDto);
+    return this.utilisateursService.inscription(pays, {
+      ...inscriptionDto,
+      role: RoleType.ETUDIANT,
+    });
   }
 
 
@@ -52,6 +59,22 @@ export class UtilisateursController {
   @ApiOperation({ summary: 'Comptes partageant un même token FCM (appareils partagés)' })
   async sharedDevices(@CurrentCountry() pays: string, @Query() filterDto: FilterUtilisateurDto) {
     return this.utilisateursService.findSharedDevices(pays, filterDto);
+  }
+
+  @UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)
+  @Roles(RoleType.ADMIN)
+  @Permissions(AdminPermission.USERS)
+  @Get(':id/admin-permissions')
+  async getAdminPermissions(@Param('id') id: string) {
+    return { permissions: await this.utilisateursService.getAdminPermissions(Number(id)) };
+  }
+
+  @UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)
+  @Roles(RoleType.ADMIN)
+  @Permissions(AdminPermission.USERS)
+  @Patch(':id/admin-permissions')
+  async updateAdminPermissions(@Param('id') id: string, @Body() dto: UpdateAdminPermissionsDto) {
+    return { permissions: await this.utilisateursService.updateAdminPermissions(Number(id), dto.permissions) };
   }
 
   @UseGuards(JwtAuthGuard)

@@ -22,6 +22,17 @@ export enum RoleType {
   AUTRE = 'autre'
 }
 
+export enum AdminPermission {
+  USERS = 'admin.users',
+  PAYMENTS = 'admin.payments',
+  WITHDRAWALS = 'admin.withdrawals',
+  SUBSCRIPTIONS = 'admin.subscriptions',
+  CONTENT = 'admin.content',
+  EDUCATION = 'admin.education',
+  ANALYTICS = 'admin.analytics',
+  SETTINGS = 'admin.settings',
+}
+
 export enum SexeType {
   M = 'M',
   F = 'F',
@@ -135,6 +146,9 @@ export class Utilisateur {
 
   @Column({ type: 'enum', enum: RoleType })
   role: RoleType;
+
+  @Column({ type: 'jsonb', nullable: true, default: null })
+  admin_permissions: AdminPermission[] | null;
 
   @Column({ type: 'varchar', length: 50, default: 'benin' })
   pays: string;

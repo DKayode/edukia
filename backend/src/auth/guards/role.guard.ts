@@ -1,6 +1,7 @@
 import { Injectable, CanActivate, ExecutionContext } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { RoleType } from '../../utilisateurs/entities/utilisateur.entity';
+import { permissionForPath } from './permission.guard';
 
 @Injectable()
 export class RoleGuard implements CanActivate {
@@ -12,6 +13,11 @@ export class RoleGuard implements CanActivate {
       return true;
     }
     const { user } = context.switchToHttp().getRequest();
-    return requiredRoles.includes(user.role);
+    if (!requiredRoles.includes(user.role)) return false;
+    if (user.role === RoleType.ADMIN && user.permissions != null) {
+      const inferred = permissionForPath(context.switchToHttp().getRequest().path ?? '');
+      if (inferred && !user.permissions.includes(inferred) && !user.permissions.includes('*')) return false;
+    }
+    return true;
   }
 }

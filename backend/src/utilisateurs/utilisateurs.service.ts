@@ -1,6 +1,6 @@
 import { Injectable, ConflictException, NotFoundException, Logger, BadRequestException } from '@nestjs/common';
 import { Repository, Brackets, LessThan, IsNull } from 'typeorm';
-import { Utilisateur } from './entities/utilisateur.entity';
+import { AdminPermission, Utilisateur } from './entities/utilisateur.entity';
 import { Prestataire } from '../prestataires/entities/prestataire.entity';
 import { Recruteur } from '../recruteurs/entities/recruteur.entity';
 import { Departement } from '../departements/entities/departement.entity';
@@ -28,6 +28,20 @@ import * as crypto from 'crypto';
 @Injectable()
 export class UtilisateursService {
   private readonly logger = new Logger(UtilisateursService.name);
+
+  async getAdminPermissions(id: number): Promise<AdminPermission[] | null> {
+    const user = await this.utilisateursRepository.findOne({ where: { id, role: 'admin' as any } });
+    if (!user) throw new NotFoundException('Administrateur introuvable');
+    return user.admin_permissions;
+  }
+
+  async updateAdminPermissions(id: number, permissions: AdminPermission[]): Promise<AdminPermission[]> {
+    const user = await this.utilisateursRepository.findOne({ where: { id, role: 'admin' as any } });
+    if (!user) throw new NotFoundException('Administrateur introuvable');
+    user.admin_permissions = permissions;
+    await this.utilisateursRepository.save(user);
+    return permissions;
+  }
 
   constructor(
     private readonly resolver: DataSourceResolver,

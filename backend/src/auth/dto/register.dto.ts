@@ -26,9 +26,11 @@ export class RegisterDto {
     @MinLength(6, { message: 'Le mot de passe doit contenir au moins 6 caractères' })
     mot_de_passe: string;
 
-    @ApiProperty({ enum: RoleType, example: RoleType.ETUDIANT, description: 'Le rôle de l\'utilisateur' })
+    /** Accepted for old mobile clients; AuthService deliberately ignores it. */
+    @ApiProperty({ enum: RoleType, required: false })
+    @IsOptional()
     @IsEnum(RoleType)
-    role: RoleType;
+    role?: RoleType;
 
     @ApiProperty({ enum: SexeType, example: SexeType.M, description: 'Le sexe de l\'utilisateur' })
     @IsEnum(SexeType)

@@ -20,6 +20,9 @@ import { MajVilleDto } from './dto/maj-ville.dto';
 import { FilterVilleDto } from './dto/filter-ville.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentCountry } from '../common/decorators/current-country.decorator';
+import { RoleGuard } from '../auth/guards/role.guard';
+import { Roles } from '../auth/decorators/roles.decorator';
+import { RoleType } from '../utilisateurs/entities/utilisateur.entity';
 
 @ApiTags('villes')
 @ApiBearerAuth()
@@ -45,12 +48,16 @@ export class VilleController {
   }
 
   @Post()
+  @UseGuards(JwtAuthGuard, RoleGuard)
+  @Roles(RoleType.ADMIN)
   @ApiOperation({ summary: 'Créer une ville (scopée au département parent)' })
   async create(@CurrentCountry() pays: string, @Body() dto: CreerVilleDto) {
     return this.toResponse(await this.villeService.create(pays, dto));
   }
 
   @Post('import-csv')
+  @UseGuards(JwtAuthGuard, RoleGuard)
+  @Roles(RoleType.ADMIN)
   @UseInterceptors(FileInterceptor('file', { storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } }))
   @ApiConsumes('multipart/form-data')
   @ApiOperation({ summary: 'Importer des villes via CSV (colonnes: departement_nom,ville_nom). Scope via ?country=' })
@@ -80,6 +87,8 @@ export class VilleController {
   }
 
   @Put(':id')
+  @UseGuards(JwtAuthGuard, RoleGuard)
+  @Roles(RoleType.ADMIN)
   @ApiOperation({ summary: 'Mettre à jour une ville' })
   async update(
     @CurrentCountry() pays: string,

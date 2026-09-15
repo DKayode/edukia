@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useDebounce } from "@/hooks/use-debounce";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -62,6 +63,7 @@ function Field({ label, value }: { label: string; value?: unknown }) {
 }
 
 export default function Users() {
+  const navigate = useNavigate();
   const [detailsUser, setDetailsUser] = useState<any | null>(null);
   const timeZone = useCountryTimezone();
   const [searchQuery, setSearchQuery] = useState("");
@@ -282,6 +284,15 @@ export default function Users() {
                         </TableCell>
                         <TableCell className="text-right">
                           <div className="flex justify-end gap-2">
+                            {user.role === "admin" && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => navigate(`/users/${user.id}/permissions`)}
+                              >
+                                Permissions
+                              </Button>
+                            )}
                             <Button
                               variant="ghost"
                               size="icon"

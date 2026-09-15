@@ -5,7 +5,7 @@ import { Repository, LessThan } from 'typeorm';
 import { UtilisateursService } from '../utilisateurs/utilisateurs.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
-import { Utilisateur } from '../utilisateurs/entities/utilisateur.entity';
+import { RoleType, Utilisateur } from '../utilisateurs/entities/utilisateur.entity';
 import { RefreshToken, AppareilType } from './entities/refresh-token.entity';
 import { BlacklistedToken } from './entities/blacklisted-token.entity';
 import { LoginEvent } from './entities/login-event.entity';
@@ -83,7 +83,8 @@ export class AuthService {
       email: registerDto.email,
       pseudo: registerDto.pseudo,
       mot_de_passe: hashedPassword, // Note: InscriptionDto expects plain password, but we hash here? check service
-      role: registerDto.role,
+      // Never trust a role coming from a public registration request.
+      role: RoleType.ETUDIANT,
       sexe: registerDto.sexe,
       age_group: registerDto.age_group,
       zone_residence: registerDto.zone_residence,
@@ -111,7 +112,7 @@ export class AuthService {
    * gardes interrogent la base à chaque appel. Le claim ne sert qu'aux services
    * tiers qui n'ont pas accès à cette base.
    */
-  private async payloadJeton(user: { id: number; email: string; role: any }): Promise<JwtPayload> {
+  private async payloadJeton(user: { id: number; email: string; role: any; admin_permissions?: any }): Promise<JwtPayload> {
     let abonnementActif = false;
     try {
       abonnementActif = await this.entitlement.hasActiveSubscription(user.id);
@@ -123,7 +124,7 @@ export class AuthService {
         `Lecture de l'abonnement impossible pour le jeton de ${user.id} : ${err?.message ?? err}`,
       );
     }
-    return { sub: user.id, email: user.email, role: user.role, abonnement_actif: abonnementActif };
+    return { sub: user.id, email: user.email, role: user.role, permissions: user.admin_permissions ?? null, abonnement_actif: abonnementActif };
   }
 
   async login(loginDto: LoginDto, appareil?: AppareilType): Promise<{ access_token: string; refresh_token: string }> {

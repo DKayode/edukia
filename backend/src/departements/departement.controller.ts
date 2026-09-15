@@ -20,6 +20,9 @@ import { MajDepartementDto } from './dto/maj-departement.dto';
 import { FilterDepartementDto } from './dto/filter-departement.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentCountry } from '../common/decorators/current-country.decorator';
+import { RoleGuard } from '../auth/guards/role.guard';
+import { Roles } from '../auth/decorators/roles.decorator';
+import { RoleType } from '../utilisateurs/entities/utilisateur.entity';
 
 @ApiTags('departements')
 @ApiBearerAuth()
@@ -36,6 +39,8 @@ export class DepartementController {
   }
 
   @Post()
+  @UseGuards(JwtAuthGuard, RoleGuard)
+  @Roles(RoleType.ADMIN)
   @ApiOperation({ summary: 'Créer un département' })
   async create(
     @CurrentCountry() pays: string,
@@ -45,6 +50,8 @@ export class DepartementController {
   }
 
   @Post('import-csv')
+  @UseGuards(JwtAuthGuard, RoleGuard)
+  @Roles(RoleType.ADMIN)
   @UseInterceptors(FileInterceptor('file', { storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } }))
   @ApiConsumes('multipart/form-data')
   @ApiOperation({ summary: 'Importer des départements via CSV (colonnes: nom,code). Scope via ?country=' })
@@ -81,6 +88,8 @@ export class DepartementController {
   }
 
   @Put(':id')
+  @UseGuards(JwtAuthGuard, RoleGuard)
+  @Roles(RoleType.ADMIN)
   @ApiOperation({ summary: 'Mettre à jour un département' })
   async update(
     @CurrentCountry() pays: string,
@@ -91,6 +100,8 @@ export class DepartementController {
   }
 
   @Delete(':id')
+  @UseGuards(JwtAuthGuard, RoleGuard)
+  @Roles(RoleType.ADMIN)
   @ApiOperation({ summary: 'Supprimer un département' })
   async remove(@CurrentCountry() pays: string, @Param('id') id: string) {
     return this.departementService.remove(pays, id);

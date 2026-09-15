@@ -1,6 +1,9 @@
 import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
+import { RoleGuard } from 'src/auth/guards/role.guard';
+import { Roles } from 'src/auth/decorators/roles.decorator';
+import { RoleType } from 'src/utilisateurs/entities/utilisateur.entity';
 import { FilieresExamenService } from './filieres-examen.service';
 import { CreateFiliereExamenDto } from './dto/create-filiere-examen.dto';
 import { UpdateFiliereExamenDto } from './dto/update-filiere-examen.dto';
@@ -14,7 +17,8 @@ export class FilieresExamenController {
   constructor(private readonly filieresExamenService: FilieresExamenService) {}
 
   @Post()
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RoleGuard)
+  @Roles(RoleType.ADMIN)
   @ApiBearerAuth()
   @ApiOperation({ summary: "Créer une nouvelle filière d'examen" })
   @ApiResponse({ status: 201, description: 'Filière créée avec succès', type: FiliereExamen })
@@ -42,7 +46,8 @@ export class FilieresExamenController {
   }
 
   @Patch(':id')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RoleGuard)
+  @Roles(RoleType.ADMIN)
   @ApiBearerAuth()
   @ApiOperation({ summary: "Mettre à jour une filière d'examen" })
   @ApiResponse({ status: 200, type: FiliereExamen })
@@ -52,7 +57,8 @@ export class FilieresExamenController {
   }
 
   @Delete(':id')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RoleGuard)
+  @Roles(RoleType.ADMIN)
   @ApiBearerAuth()
   @HttpCode(204)
   @ApiOperation({ summary: "Supprimer une filière d'examen" })

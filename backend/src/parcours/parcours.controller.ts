@@ -10,6 +10,9 @@ import { Parcour } from './entities/parcour.entity';
 import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
 import { FichiersService } from 'src/fichiers/fichiers.service';
 import { JournaliserConsultation } from '../resource-access/journaliser-consultation.decorator';
+import { RoleGuard } from 'src/auth/guards/role.guard';
+import { Roles } from 'src/auth/decorators/roles.decorator';
+import { RoleType } from 'src/utilisateurs/entities/utilisateur.entity';
 
 @ApiTags('parcours')
 @Controller('parcours')
@@ -19,7 +22,8 @@ export class ParcoursController {
     private readonly fichiersService: FichiersService,
   ) { }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RoleGuard)
+  @Roles(RoleType.ADMIN)
   @Post()
   @ApiBearerAuth('JWT')
   @ApiOperation({ summary: 'Créer un nouveau parcours' })
@@ -29,7 +33,8 @@ export class ParcoursController {
     return await this.parcoursService.create(createParcoursDto);
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RoleGuard)
+  @Roles(RoleType.ADMIN)
   @Get()
   @ApiOperation({ summary: 'Récupérer tous les parcours avec pagination et filtres' })
   @ApiQuery({ name: 'page', required: false, type: Number, description: 'Numéro de page' })
@@ -43,7 +48,8 @@ export class ParcoursController {
     return await this.parcoursService.findAll(query);
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RoleGuard)
+  @Roles(RoleType.ADMIN)
   @JournaliserConsultation('parcours')
   @Get(':id')
   @ApiOperation({ summary: 'Récupérer un parcours par son ID' })

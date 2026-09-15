@@ -8,19 +8,24 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PaginationDto } from '../common/dto/pagination.dto';
 import { FilterNiveauEtudeDto } from './dto/filter-niveau-etude.dto';
 import { CurrentCountry } from '../common/decorators/current-country.decorator';
+import { RoleGuard } from '../auth/guards/role.guard';
+import { Roles } from '../auth/decorators/roles.decorator';
+import { RoleType } from '../utilisateurs/entities/utilisateur.entity';
 
 @ApiTags('niveau-etude')
 @Controller('niveau-etude')
 export class NiveauEtudeController {
   constructor(private readonly niveauEtudeService: NiveauEtudeService) { }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RoleGuard)
+  @Roles(RoleType.ADMIN)
   @Post()
   async create(@CurrentCountry() pays: string, @Body() creerNiveauEtudeDto: CreerNiveauEtudeDto) {
     return this.niveauEtudeService.create(pays, creerNiveauEtudeDto);
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RoleGuard)
+  @Roles(RoleType.ADMIN)
   @Get()
   @ApiOperation({ summary: 'Récupérer la liste des niveaux d\'étude' })
   @ApiResponse({ status: 200, description: 'Liste récupérée avec succès' })
@@ -34,14 +39,16 @@ export class NiveauEtudeController {
     return this.niveauEtudeService.findAll(pays, filterDto);
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RoleGuard)
+  @Roles(RoleType.ADMIN)
   @Get('grouper-par-nom')
   @ApiOperation({ summary: 'Récupérer les niveaux groupés par nom avec pagination' })
   async findGroupByName(@CurrentCountry() pays: string, @Query() paginationDto: PaginationDto) {
     return this.niveauEtudeService.findGroupByName(pays, paginationDto);
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RoleGuard)
+  @Roles(RoleType.ADMIN)
   @Get(':id')
   async findOne(@Param('id') id: string): Promise<NiveauEtudeResponseDto> {
     return this.niveauEtudeService.findOne(id);

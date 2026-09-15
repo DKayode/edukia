@@ -1,9 +1,10 @@
-import { RoleType } from '../../utilisateurs/entities/utilisateur.entity';
+import { AdminPermission, RoleType } from '../../utilisateurs/entities/utilisateur.entity';
 
 export interface JwtPayload {
   sub: number;
   email: string;
   role: RoleType;
+  permissions?: AdminPermission[] | null;
   /**
    * L'utilisateur a-t-il un abonnement actif au moment où le jeton a été émis ?
    *

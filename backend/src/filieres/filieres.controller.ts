@@ -8,19 +8,24 @@ import { PaginationDto } from '../common/dto/pagination.dto';
 import { FilterFiliereDto } from './dto/filter-filiere.dto';
 import { FiliereResponseDto } from './dto/filiere-response.dto';
 import { CurrentCountry } from '../common/decorators/current-country.decorator';
+import { RoleGuard } from '../auth/guards/role.guard';
+import { Roles } from '../auth/decorators/roles.decorator';
+import { RoleType } from '../utilisateurs/entities/utilisateur.entity';
 
 @ApiTags('filieres')
 @Controller('filieres')
 export class FilieresController {
   constructor(private readonly filieresService: FilieresService) { }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RoleGuard)
+  @Roles(RoleType.ADMIN)
   @Post()
   async create(@Body() creerFiliereDto: CreerFiliereDto) {
     return this.filieresService.create(creerFiliereDto);
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RoleGuard)
+  @Roles(RoleType.ADMIN)
   @Get()
   @ApiOperation({ summary: 'Récupérer la liste des filières' })
   @ApiResponse({ status: 200, description: 'Liste récupérée avec succès' })
@@ -32,7 +37,8 @@ export class FilieresController {
     return this.filieresService.findAll(pays, filterDto);
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RoleGuard)
+  @Roles(RoleType.ADMIN)
   @Get(':id')
   @ApiResponse({ type: FiliereResponseDto })
   async findOne(@Param('id') id: string) {

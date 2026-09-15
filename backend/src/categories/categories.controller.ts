@@ -23,6 +23,9 @@ import { UpdateCategoryDto } from './dto/update-category.dto';
 import { Category } from './entities/category.entity';
 import { CategoryQueryDto } from './dto/category-query.dto';
 import { FichiersService } from 'src/fichiers/fichiers.service';
+import { RoleGuard } from 'src/auth/guards/role.guard';
+import { Roles } from 'src/auth/decorators/roles.decorator';
+import { RoleType } from 'src/utilisateurs/entities/utilisateur.entity';
 
 @ApiTags('categories')
 @Controller('categories')
@@ -30,7 +33,8 @@ export class CategoriesController {
   constructor(private readonly categoriesService: CategoriesService, private readonly fichiersService: FichiersService) { }
 
   @Post()
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RoleGuard)
+  @Roles(RoleType.ADMIN)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Créer une nouvelle catégorie' })
   @ApiResponse({ status: 201, description: 'Catégorie créée avec succès', type: Category })
@@ -71,7 +75,8 @@ export class CategoriesController {
   }
 
   @Patch(':id')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RoleGuard)
+  @Roles(RoleType.ADMIN)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Mettre à jour une catégorie' })
   @ApiResponse({ status: 200, description: 'Catégorie mise à jour avec succès', type: Category })
@@ -85,7 +90,8 @@ export class CategoriesController {
   }
 
   @Patch(':id/icone')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RoleGuard)
+  @Roles(RoleType.ADMIN)
   @ApiBearerAuth()
   @UseInterceptors(FileInterceptor('file'))
   @ApiOperation({ summary: 'Mettre à jour l\'icône d\'une catégorie' })
@@ -113,7 +119,8 @@ export class CategoriesController {
   }
 
   @Delete(':id')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RoleGuard)
+  @Roles(RoleType.ADMIN)
   @ApiBearerAuth()
   @HttpCode(204)
   @ApiOperation({ summary: 'Supprimer une catégorie' })
