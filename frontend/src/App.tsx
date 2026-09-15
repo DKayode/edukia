@@ -8,6 +8,7 @@ import { ProtectedRoute } from "./components/ProtectedRoute";
 import { DashboardLayout } from "./components/DashboardLayout";
 import Dashboard from "./pages/Dashboard";
 import Users from "./pages/Users";
+import AdminPermissions from "./pages/AdminPermissions";
 import Etablissements from "./pages/Etablissements";
 import Filieres from "./pages/Filieres";
 import Matieres from "./pages/Matieres";
@@ -91,6 +92,7 @@ const App = () => (
                     <Routes>
                       <Route path="/" element={<Dashboard />} />
                       <Route path="/users" element={<Users />} />
+                      <Route path="/users/:id/permissions" element={<AdminPermissions />} />
                       <Route path="/etablissements" element={<Etablissements />} />
                       <Route path="/filieres" element={<Filieres />} />
                       <Route path="/matieres" element={<Matieres />} />
