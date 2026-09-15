@@ -37,6 +37,7 @@ const RANG_STATUT: Record<StatutPaiement, number> = {
 const PRESTATAIRES_PUBLICS: Partial<Record<PrestatairePaiement, string>> = {
   [PrestatairePaiement.KKIAPAY]: 'KKiaPay',
   [PrestatairePaiement.FEDAPAY]: 'FedaPay',
+  [PrestatairePaiement.STRIPE]: 'Stripe',
 };
 
 @Injectable()
@@ -220,7 +221,7 @@ export class PaiementsService {
     const existante = await this.configurations.findOne({ where: { pays, prestataire: dto.prestataire, mode } });
     const config = existante ?? this.configurations.create({ pays, prestataire: dto.prestataire, mode });
     config.mode = dto.mode ?? config.mode ?? ModePaiement.SANDBOX;
-    config.devise = dto.devise ?? config.devise ?? 'XOF';
+    config.devise = dto.devise ?? config.devise ?? (dto.prestataire === PrestatairePaiement.STRIPE ? 'EUR' : 'XOF');
     config.montant_min = dto.montant_min !== undefined ? dto.montant_min : config.montant_min ?? null;
     config.montant_max = dto.montant_max !== undefined ? dto.montant_max : config.montant_max ?? null;
     config.est_actif = dto.est_actif ?? config.est_actif ?? false;
@@ -234,7 +235,10 @@ export class PaiementsService {
 
     return this.dataSource.transaction(async (manager) => {
       if (config.est_actif) {
-        await manager.getRepository(ConfigurationPaiement).update({ pays, est_actif: true }, { est_actif: false });
+        await manager.getRepository(ConfigurationPaiement).update(
+          { pays, prestataire: config.prestataire, est_actif: true },
+          { est_actif: false },
+        );
       }
       const sauvegarde = await manager.getRepository(ConfigurationPaiement).save(config);
       return this.configurationPublique(sauvegarde);
@@ -371,7 +375,11 @@ export class PaiementsService {
       ? await this.paiements.findOne({ where: { prestataire, reference_prestataire: evt.referencePrestataire } })
         ?? (evt.reference ? await this.paiements.findOne({ where: { prestataire, reference: evt.reference } }) : null)
       : await this.paiements.findOne({ where: { prestataire, reference: evt.reference } });
-    if (!paiement) throw new NotFoundException('Paiement introuvable');
+    if (!paiement) {
+      this.logger.warn(`Webhook ${prestataire} ignoré : aucun paiement trouvé (ref=${evt.reference}, refPrestataire=${evt.referencePrestataire})`);
+      await this.webhooks.update(webhookId, { traite: true, erreur_traitement: 'PAIEMENT_INTROUVABLE_IGNORE' });
+      return;
+    }
     if (STATUTS_FINAUX.has(paiement.statut)) return;
 
     // En mode widget KKiaPay, reference_prestataire est null a l'initiation.
@@ -461,7 +469,28 @@ export class PaiementsService {
     mode?: ModePaiement,
   ): Partial<ConfigurationPaiement>[] {
     const prestataireDefaut = this.config.get<string>('PAIEMENT_PRESTATAIRE_DEFAUT', 'KKIAPAY') as PrestatairePaiement;
-    if (prestataire && prestataire !== PrestatairePaiement.KKIAPAY && prestataire !== PrestatairePaiement.FEDAPAY) return [];
+    if (prestataire && prestataire !== PrestatairePaiement.KKIAPAY && prestataire !== PrestatairePaiement.FEDAPAY && prestataire !== PrestatairePaiement.STRIPE) return [];
+    if (prestataire === PrestatairePaiement.STRIPE || (!prestataire && prestataireDefaut === PrestatairePaiement.STRIPE)) {
+      const secretKey = this.config.get<string>('STRIPE_SECRET_KEY');
+      const publicKey = this.config.get<string>('STRIPE_PUBLIC_KEY');
+      if (secretKey) {
+        const modeDefaut = mode ?? (this.config.get<string>('PAIEMENT_MODE', ModePaiement.SANDBOX) as ModePaiement);
+        return [{
+          pays,
+          prestataire: PrestatairePaiement.STRIPE,
+          mode: modeDefaut,
+          devise: this.config.get<string>('STRIPE_DEVISE_DEFAUT', 'EUR'),
+          montant_min: null,
+          montant_max: null,
+          est_actif: true,
+          credentials_chiffres: null,
+          credentials_masquees: {
+            public_key: publicKey ? this.credentials.mask({ public_key: publicKey }).public_key : undefined,
+            secret_key: this.credentials.mask({ secret_key: secretKey }).secret_key,
+          },
+        }];
+      }
+    }
     if (prestataire === PrestatairePaiement.FEDAPAY || (!prestataire && prestataireDefaut === PrestatairePaiement.FEDAPAY)) {
       const secretKey = this.config.get<string>('FEDAPAY_SECRET_KEY');
       const publicKey = this.config.get<string>('FEDAPAY_PUBLIC_KEY');

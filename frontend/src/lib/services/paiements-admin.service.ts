@@ -1,6 +1,6 @@
 import { api } from '../api';
 
-export type PrestatairePaiement = 'KKIAPAY' | 'FEDAPAY';
+export type PrestatairePaiement = 'KKIAPAY' | 'FEDAPAY' | 'STRIPE';
 export type ModePaiement = 'sandbox' | 'live';
 
 export interface ConfigurationPaiement {
