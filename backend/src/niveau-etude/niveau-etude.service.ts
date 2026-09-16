@@ -8,6 +8,7 @@ import { MajNiveauEtudeDto } from './dto/maj-niveau-etude.dto';
 import { PaginationDto } from '../common/dto/pagination.dto';
 import { PaginationResponse } from '../common/interfaces/pagination-response.interface';
 import { FilterNiveauEtudeDto } from './dto/filter-niveau-etude.dto';
+import { canoniserNiveau, memeNiveau } from './niveau-etude.canonique';
 
 @Injectable()
 export class NiveauEtudeService {
@@ -32,10 +33,49 @@ export class NiveauEtudeService {
       this.logger.warn(`Filière ID ${creerNiveauEtudeDto.filiere_id} introuvable`);
       throw new NotFoundException('Filière non trouvée');
     }
-    const newNiveauEtude = this.niveauEtudeRepository.create({ ...creerNiveauEtudeDto, pays: filiere.pays });
+
+    // Le libellé vient d'une saisie libre — souvent celle d'un utilisateur qui
+    // a proposé un niveau en soumettant une épreuve. « l1 » devient donc
+    // « Licence 1 » ici, et non trois lignes plus tard dans une migration de
+    // nettoyage.
+    const nom = canoniserNiveau(creerNiveauEtudeDto.nom);
+    if (nom !== creerNiveauEtudeDto.nom) {
+      this.logger.log(`Libellé canonisé: « ${creerNiveauEtudeDto.nom} » → « ${nom} »`);
+    }
+
+    // Une filière ne doit pas proposer deux fois le même niveau : c'est ce qui
+    // affiche « Licence 1 » en triple dans la liste déroulante. On rend la
+    // ligne existante au lieu d'en ajouter une — la création reste ainsi
+    // idempotente, ce qu'attend un appelant qui ignore si le niveau existe.
+    const existant = await this.trouverEquivalent(creerNiveauEtudeDto.filiere_id, nom);
+    if (existant) {
+      this.logger.log(
+        `Niveau « ${nom} » déjà présent sur la filière ${creerNiveauEtudeDto.filiere_id} ` +
+          `(ID ${existant.id}) : réutilisé plutôt que dupliqué.`,
+      );
+      return existant;
+    }
+
+    const newNiveauEtude = this.niveauEtudeRepository.create({
+      ...creerNiveauEtudeDto,
+      nom,
+      pays: filiere.pays,
+    });
     const saved = await this.niveauEtudeRepository.save(newNiveauEtude);
     this.logger.log(`Niveau d'étude créé: ${saved.nom} (ID: ${saved.id}, pays: ${saved.pays})`);
     return saved;
+  }
+
+  /**
+   * Le niveau déjà présent sur cette filière et désignant la même chose.
+   *
+   * La comparaison se fait en mémoire plutôt qu'en SQL : la canonisation vit
+   * dans le code, et la dupliquer en SQL la ferait diverger au premier motif
+   * ajouté. Une filière porte quelques niveaux, jamais des milliers.
+   */
+  private async trouverEquivalent(filiereId: number, nom: string) {
+    const existants = await this.niveauEtudeRepository.find({ where: { filiere_id: filiereId } });
+    return existants.find((n) => memeNiveau(n.nom, nom)) ?? null;
   }
 
   async findAll(pays: string, filterDto: FilterNiveauEtudeDto): Promise<PaginationResponse<any>> {
@@ -147,9 +187,17 @@ export class NiveauEtudeService {
       pays = parent.pays;
     }
 
+    // Même canonisation qu'à la création : renommer « Licence 1 » en « L1 »
+    // depuis le back-office rouvrirait la porte qu'on vient de fermer.
+    const nom =
+      majNiveauEtudeDto.nom !== undefined
+        ? canoniserNiveau(majNiveauEtudeDto.nom)
+        : niveauEtude.nom;
+
     const updated = await this.niveauEtudeRepository.save({
       ...niveauEtude,
       ...majNiveauEtudeDto,
+      nom,
       filiere,
       pays,
     });
