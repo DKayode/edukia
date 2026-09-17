@@ -9,6 +9,7 @@ import { PaginationResponse } from '../common/interfaces/pagination-response.int
 import { FilterFiliereDto } from './dto/filter-filiere.dto';
 import { FiliereResponseDto } from './dto/filiere-response.dto';
 import { DataSourceResolver } from '../config/data-source-resolver.service';
+import { memeLibelle, normaliserLibelle } from '../common/utils/libelles';
 
 @Injectable()
 export class FilieresService {
@@ -37,14 +38,36 @@ export class FilieresService {
       this.logger.warn(`Établissement ID ${creerFiliereDto.etablissement_id} introuvable`);
       throw new NotFoundException('Établissement non trouvé');
     }
+    const nom = normaliserLibelle(creerFiliereDto.nom);
+
+    // Un établissement ne doit pas porter deux fois la même filière — 8 lignes
+    // en double existent aujourd'hui. On rend l'existante plutôt que d'en
+    // ajouter une : la création devient idempotente.
+    const existante = await this.trouverEquivalente(creerFiliereDto.etablissement_id, nom);
+    if (existante) {
+      this.logger.log(
+        `Filière « ${nom} » déjà présente sur l'établissement ${creerFiliereDto.etablissement_id} ` +
+          `(ID ${existante.id}) : réutilisée plutôt que dupliquée.`,
+      );
+      return existante;
+    }
+
     const newFiliere = this.filieresRepository.create({
-      nom: creerFiliereDto.nom,
+      nom,
       etablissement: { id: creerFiliereDto.etablissement_id } as any,
       pays: etablissement.pays,
     });
     const saved = await this.filieresRepository.save(newFiliere);
     this.logger.log(`Filière créée: ${saved.nom} (ID: ${saved.id}, pays: ${saved.pays})`);
     return saved;
+  }
+
+  /** La filière déjà présente sous cet établissement et désignant la même chose. */
+  private async trouverEquivalente(etablissementId: number, nom: string) {
+    const existantes = await this.filieresRepository.find({
+      where: { etablissement_id: etablissementId } as any,
+    });
+    return existantes.find((f) => memeLibelle(f.nom, nom)) ?? null;
   }
 
   async findAll(pays: string, filterDto: FilterFiliereDto): Promise<PaginationResponse<FiliereResponseDto>> {

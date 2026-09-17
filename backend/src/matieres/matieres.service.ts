@@ -8,6 +8,7 @@ import { MajMatiereDto } from './dto/maj-matiere.dto';
 import { PaginationDto } from '../common/dto/pagination.dto';
 import { PaginationResponse } from '../common/interfaces/pagination-response.interface';
 import { FilterMatiereDto } from './dto/filter-matiere.dto';
+import { memeLibelle, normaliserLibelle } from '../common/utils/libelles';
 
 @Injectable()
 export class MatieresService {
@@ -32,10 +33,41 @@ export class MatieresService {
       this.logger.warn(`Niveau d'étude ID ${creerMatiereDto.niveau_etude_id} introuvable`);
       throw new NotFoundException('Niveau d\'étude non trouvé');
     }
-    const newMatiere = this.matieresRepository.create({ ...creerMatiereDto, pays: niveauEtude.pays });
+    // Le libellé vient d'une saisie libre — souvent celle d'un professeur, ou
+    // la reprise d'une matière proposée par un utilisateur. On normalise les
+    // espaces sans toucher au sens : contrairement aux niveaux d'étude, les
+    // matières n'ont pas de nomenclature fermée, « Macroéconomie » ne se
+    // réécrit pas.
+    const nom = normaliserLibelle(creerMatiereDto.nom);
+
+    // Un niveau ne doit pas porter deux fois la même matière. Rien ne
+    // l'empêchait : la production compte 125 lignes strictement identiques.
+    // On rend la ligne existante plutôt que d'en ajouter une, ce qui rend la
+    // création idempotente pour un appelant qui ignore si la matière existe.
+    const existante = await this.trouverEquivalente(creerMatiereDto.niveau_etude_id, nom);
+    if (existante) {
+      this.logger.log(
+        `Matière « ${nom} » déjà présente sur le niveau ${creerMatiereDto.niveau_etude_id} ` +
+          `(ID ${existante.id}) : réutilisée plutôt que dupliquée.`,
+      );
+      return existante;
+    }
+
+    const newMatiere = this.matieresRepository.create({ ...creerMatiereDto, nom, pays: niveauEtude.pays });
     const saved = await this.matieresRepository.save(newMatiere);
     this.logger.log(`Matière créée: ${saved.nom} (ID: ${saved.id}, pays: ${saved.pays})`);
     return saved;
+  }
+
+  /**
+   * La matière déjà présente sous ce niveau et désignant la même chose.
+   *
+   * Comparaison en mémoire : la règle vit dans le code, et la dupliquer en SQL
+   * la ferait diverger. Un niveau porte quelques dizaines de matières.
+   */
+  private async trouverEquivalente(niveauEtudeId: number, nom: string) {
+    const existantes = await this.matieresRepository.find({ where: { niveau_etude_id: niveauEtudeId } });
+    return existantes.find((m) => memeLibelle(m.nom, nom)) ?? null;
   }
 
   async findAll(pays: string, filterDto: FilterMatiereDto): Promise<PaginationResponse<any>> {
