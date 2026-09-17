@@ -24,8 +24,12 @@ export class NiveauEtudeController {
     return this.niveauEtudeService.create(pays, creerNiveauEtudeDto);
   }
 
-  @UseGuards(JwtAuthGuard, RoleGuard)
-  @Roles(RoleType.ADMIN)
+  // Lecture ouverte à tout compte connecté, comme pour les matières et les
+  // établissements. Ces quatre référentiels servent le MÊME parcours : choisir
+  // son établissement, sa filière, son niveau, puis déposer une épreuve. Les
+  // réserver aux administrateurs renvoyait un 403 au milieu du tunnel, sans
+  // que rien ne l'explique côté mobile. L'écriture, elle, reste réservée.
+  @UseGuards(JwtAuthGuard)
   @Get()
   @ApiOperation({ summary: 'Récupérer la liste des niveaux d\'étude' })
   @ApiResponse({ status: 200, description: 'Liste récupérée avec succès' })
@@ -39,33 +43,38 @@ export class NiveauEtudeController {
     return this.niveauEtudeService.findAll(pays, filterDto);
   }
 
-  @UseGuards(JwtAuthGuard, RoleGuard)
-  @Roles(RoleType.ADMIN)
+  @UseGuards(JwtAuthGuard)
   @Get('grouper-par-nom')
   @ApiOperation({ summary: 'Récupérer les niveaux groupés par nom avec pagination' })
   async findGroupByName(@CurrentCountry() pays: string, @Query() paginationDto: PaginationDto) {
     return this.niveauEtudeService.findGroupByName(pays, paginationDto);
   }
 
-  @UseGuards(JwtAuthGuard, RoleGuard)
-  @Roles(RoleType.ADMIN)
+  @UseGuards(JwtAuthGuard)
   @Get(':id')
   async findOne(@Param('id') id: string): Promise<NiveauEtudeResponseDto> {
     return this.niveauEtudeService.findOne(id);
   }
 
-  @UseGuards(JwtAuthGuard)
+  // Modifier ou supprimer un référentiel reste réservé à l'administration.
+  // Ces routes acceptaient jusqu'ici tout compte connecté : un étudiant
+  // pouvait renommer ou supprimer un niveau d'étude, entraînant avec lui les
+  // matières et les épreuves qui en dépendent.
+  @UseGuards(JwtAuthGuard, RoleGuard)
+  @Roles(RoleType.ADMIN)
   @Put(':id')
   async update(@Param('id') id: string, @Body() majNiveauEtudeDto: MajNiveauEtudeDto) {
     return this.niveauEtudeService.update(id, majNiveauEtudeDto);
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RoleGuard)
+  @Roles(RoleType.ADMIN)
   @Delete(':id')
   async remove(@Param('id') id: string) {
     return this.niveauEtudeService.remove(id);
   }
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RoleGuard)
+  @Roles(RoleType.ADMIN)
   @Delete('grouper-par-nom/:nom')
   @ApiOperation({ summary: 'Supprimer tous les niveaux portant un nom dans un pays donné' })
   @ApiQuery({ name: 'country', required: true, description: 'Country slug; this DELETE targets rows by name and needs the scope explicit.' })
