@@ -24,8 +24,12 @@ export class FilieresController {
     return this.filieresService.create(creerFiliereDto);
   }
 
-  @UseGuards(JwtAuthGuard, RoleGuard)
-  @Roles(RoleType.ADMIN)
+  // Lecture ouverte à tout compte connecté, comme pour les matières et les
+  // établissements. Ces quatre référentiels servent le MÊME parcours : choisir
+  // son établissement, sa filière, son niveau, puis déposer une épreuve. Les
+  // réserver aux administrateurs renvoyait un 403 au milieu du tunnel, sans
+  // que rien ne l'explique côté mobile. L'écriture, elle, reste réservée.
+  @UseGuards(JwtAuthGuard)
   @Get()
   @ApiOperation({ summary: 'Récupérer la liste des filières' })
   @ApiResponse({ status: 200, description: 'Liste récupérée avec succès' })
@@ -37,21 +41,26 @@ export class FilieresController {
     return this.filieresService.findAll(pays, filterDto);
   }
 
-  @UseGuards(JwtAuthGuard, RoleGuard)
-  @Roles(RoleType.ADMIN)
+  @UseGuards(JwtAuthGuard)
   @Get(':id')
   @ApiResponse({ type: FiliereResponseDto })
   async findOne(@Param('id') id: string) {
     return this.filieresService.findOne(id);
   }
 
-  @UseGuards(JwtAuthGuard)
+  // Modifier ou supprimer un référentiel reste réservé à l'administration.
+  // Ces routes acceptaient jusqu'ici tout compte connecté : un étudiant
+  // pouvait renommer ou supprimer un niveau d'étude, entraînant avec lui les
+  // matières et les épreuves qui en dépendent.
+  @UseGuards(JwtAuthGuard, RoleGuard)
+  @Roles(RoleType.ADMIN)
   @Put(':id')
   async update(@Param('id') id: string, @Body() majFiliereDto: MajFiliereDto) {
     return this.filieresService.update(id, majFiliereDto);
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RoleGuard)
+  @Roles(RoleType.ADMIN)
   @Delete(':id')
   async remove(@Param('id') id: string) {
     return this.filieresService.remove(id);
