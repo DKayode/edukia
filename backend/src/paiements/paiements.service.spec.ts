@@ -49,6 +49,7 @@ describe('PaiementsService - remboursement et commission', () => {
       parrainageService as unknown as ParrainageService,
       {} as any,
       {} as any,
+      { honorerCommande: jest.fn(), parUuid: jest.fn(), lierPaiement: jest.fn() } as any,
       { get: jest.fn() } as any,
     );
   });

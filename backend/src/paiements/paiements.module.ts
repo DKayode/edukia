@@ -19,9 +19,10 @@ import { PaiementProviderRegistry } from './providers/paiement-provider.registry
 import { PAIEMENT_PROVIDERS } from './shared/paiement.tokens';
 import { WebhooksController } from './webhooks.controller';
 import { PlanAbonnement } from '../abonnements/entities/plan-abonnement.entity';
+import { CodesModule } from '../codes/codes.module';
 
 @Module({
-  imports: [
+  imports: [CodesModule, 
     ConfigModule,
     TypeOrmModule.forFeature([PlanAbonnement, Paiement, PaiementWebhook, ConfigurationPaiement, Abonnement, Utilisateur]),
     AbonnementsModule,

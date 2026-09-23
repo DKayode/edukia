@@ -257,9 +257,20 @@ export class CodeValidationService {
     if (code.date_debut && new Date(code.date_debut) > maintenant) return 'PAS_ENCORE_VALIDE';
     if (code.date_fin && new Date(code.date_fin) < maintenant) return 'EXPIRE';
 
-    // Utiliser son propre code n'a aucun sens : ni remise offerte à soi-même,
-    // ni commission versée à soi-même. Indécidable sans compte.
-    if (utilisateurId && code.proprietaire_id === utilisateurId) return 'AUTO_UTILISATION';
+    // Utiliser son propre code n'a aucun sens pour un code de parrainage : ni
+    // remise offerte à soi-même, ni commission versée à soi-même.
+    //
+    // Un code ACHETÉ est l'exception : on l'a payé, et rien n'oblige à le
+    // donner. Un parent qui équipe sa famille se compte dedans. La règle ne
+    // s'applique donc qu'aux codes dont on est propriétaire SANS les avoir
+    // achetés. Indécidable sans compte, d'où la garde sur `utilisateurId`.
+    if (
+      utilisateurId &&
+      code.proprietaire_id === utilisateurId &&
+      code.origine !== OrigineCode.ACHAT
+    ) {
+      return 'AUTO_UTILISATION';
+    }
 
     const plans = (code as any).plans_eligibles as number[] | null;
     if (planId && plans?.length && !plans.includes(planId)) return 'PLAN_NON_ELIGIBLE';

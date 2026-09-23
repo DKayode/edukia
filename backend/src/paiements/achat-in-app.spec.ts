@@ -50,7 +50,10 @@ describe('PaiementsService — achat in-app', () => {
     providers = { get: jest.fn(() => ({ parserWebhook: () => evenement })) };
     service = new PaiementsService(
       paiements, webhooks, {} as any, abonnements, utilisateurs, plans,
-      providers, {} as any, {} as any, {} as any, {} as any, { get: () => undefined } as any,
+      providers, {} as any, {} as any, {} as any, {} as any,
+      // Service des commandes groupées : hors sujet ici.
+      { honorerCommande: jest.fn(), parUuid: jest.fn(), lierPaiement: jest.fn() } as any,
+      { get: () => undefined } as any,
     );
   });
 

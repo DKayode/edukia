@@ -1,4 +1,4 @@
-import { Body, Controller, Post, Request, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Post, Request, UseGuards } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiOperation,
@@ -11,6 +11,10 @@ import { CodeValidationRateLimitGuard } from './code-validation-rate-limit.guard
 import { CodeValidationService } from './code-validation.service';
 import { ValiderCodeDto } from './dto/valider-code.dto';
 import { PlansService } from '../abonnements/plans.service';
+import { CodesService } from './codes.service';
+import { CommandesCodesService } from './commandes-codes.service';
+import { CreerCommandeCodesDto } from './dto/creer-commande-codes.dto';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
 @ApiTags('codes')
 @Controller('codes')
@@ -18,7 +22,49 @@ export class CodesController {
   constructor(
     private readonly validation: CodeValidationService,
     private readonly plans: PlansService,
+    private readonly codesService: CodesService,
+    private readonly commandes: CommandesCodesService,
   ) {}
+
+
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @Get('mes-codes')
+  @ApiOperation({
+    summary: 'Mes codes et leur état',
+    description:
+      'Les codes que l’utilisateur possède — achetés ou reçus — avec, pour chacun, s’il a été ' +
+      'utilisé, quand et par qui. L’état vient du journal des utilisations, pas d’un compteur.',
+  })
+  mesCodes(@CurrentCountry() pays: string, @Request() req) {
+    return this.codesService.mesCodes(req.user?.utilisateurId, pays);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @Post('commandes')
+  @ApiOperation({
+    summary: 'Acheter plusieurs abonnements d’un coup',
+    description:
+      'Enregistre l’intention d’achat et renvoie le montant à payer. AUCUN code n’est créé ici : ' +
+      'ils naissent à la confirmation du paiement, sans quoi un panier abandonné laisserait des ' +
+      'abonnements gratuits dans la nature. Enchaînez avec POST /paiements/initier.',
+  })
+  creerCommande(
+    @CurrentCountry() pays: string,
+    @Request() req,
+    @Body() dto: CreerCommandeCodesDto,
+  ) {
+    return this.commandes.creer(pays, req.user?.utilisateurId, dto);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @Get('commandes')
+  @ApiOperation({ summary: 'Mes commandes groupées et leur état' })
+  mesCommandes(@CurrentCountry() pays: string, @Request() req) {
+    return this.commandes.mesCommandes(req.user?.utilisateurId, pays);
+  }
 
   @Post('valider')
   // Authentification facultative : on saisit souvent un code promotionnel avant

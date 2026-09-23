@@ -190,6 +190,63 @@ export class CodesService {
    * ne doit pas ouvrir 5 000 allers-retours. Les collisions sont absorbées par
    * `ON CONFLICT DO NOTHING`, et on complète jusqu'au compte demandé.
    */
+
+  /**
+   * Les codes que possède un utilisateur, avec leur état d'usage.
+   *
+   * Répond à la question de l'acheteur : « lesquels ont été utilisés, et par
+   * qui ? ». L'état se lit sur le JOURNAL des utilisations, pas sur le compteur
+   * `usage_actuel` — celui-ci est un cache, et un écart ferait mentir la liste.
+   */
+  async mesCodes(utilisateurId: number, pays: string) {
+    const codes = await this.codes.find({
+      where: { proprietaire_id: utilisateurId, pays },
+      order: { date_creation: 'DESC' },
+    });
+    if (!codes.length) return [];
+
+    const utilisations = await this.dataSource.query(
+      `SELECT u.code_id, u.date_creation, u.utilisateur_id,
+              x.prenom, x.nom, x.email
+         FROM codes_utilisations u
+         LEFT JOIN utilisateurs x ON x.id = u.utilisateur_id
+        WHERE u.code_id = ANY($1)
+        ORDER BY u.date_creation`,
+      [codes.map((c) => c.id)],
+    );
+    const parCode = new Map<number, any[]>();
+    for (const u of utilisations) {
+      if (!parCode.has(u.code_id)) parCode.set(u.code_id, []);
+      parCode.get(u.code_id)!.push(u);
+    }
+
+    return codes.map((c) => {
+      const usages = parCode.get(c.id) ?? [];
+      const premier = usages[0];
+      return {
+        code: c.code,
+        origine: c.origine,
+        libelle: c.libelle,
+        est_actif: c.est_actif,
+        utilise: usages.length > 0,
+        // Qui l'a utilisé, et quand. Le nom est celui du bénéficiaire, pas de
+        // l'acheteur — c'est l'information qu'il cherche.
+        utilise_le: premier?.date_creation ?? null,
+        utilise_par: premier
+          ? {
+              nom: [premier.prenom, premier.nom].filter(Boolean).join(' ') || null,
+              email: premier.email ?? null,
+            }
+          : null,
+        // Un code d'achat ne sert qu'une fois ; un code de parrainage, sans
+        // limite. Le client n'a pas à connaître la règle pour l'afficher.
+        usages_restants:
+          c.usage_max_total == null ? null : Math.max(0, c.usage_max_total - usages.length),
+        date_creation: c.date_creation,
+      };
+    });
+  }
+
   async genererCampagne(pays: string, dto: GenererCampagneDto, adminId?: number) {
     const effets = dto.effets ?? [];
     CodeValidationService.verifierCoherence(effets.map((e) => e.effet));
