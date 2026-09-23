@@ -145,6 +145,110 @@ export class CommandesCodesService {
     return codes.length;
   }
 
+
+  /**
+   * Toutes les commandes du pays, pour le back-office.
+   *
+   * Répond à la question du support : « il dit avoir payé, où en est-il ? ».
+   * Le nombre de codes réellement engendrés est recompté à chaque appel plutôt
+   * que mémorisé : c'est lui qui trahit une livraison incomplète.
+   */
+  async listeAdmin(pays: string, filtre: { statut?: StatutCommande; recherche?: string } = {}) {
+    const requete = this.commandes
+      .createQueryBuilder('c')
+      .leftJoinAndSelect('c.plan', 'plan')
+      .leftJoin('utilisateurs', 'u', 'u.id = c.utilisateur_id')
+      .addSelect(['u.nom', 'u.prenom', 'u.email'])
+      .where('c.pays = :pays', { pays })
+      .orderBy('c.date_creation', 'DESC');
+
+    if (filtre.statut) requete.andWhere('c.statut = :statut', { statut: filtre.statut });
+    if (filtre.recherche?.trim()) {
+      const terme = `%${filtre.recherche.trim()}%`;
+      requete.andWhere(
+        '(u.email ILIKE :terme OR u.nom ILIKE :terme OR u.prenom ILIKE :terme OR c.uuid::text ILIKE :terme)',
+        { terme },
+      );
+    }
+
+    const lignes = await requete.getRawAndEntities();
+    return Promise.all(
+      lignes.entities.map(async (c, i) => {
+        const brut = lignes.raw[i] ?? {};
+        const livres = await this.codes.count({ where: { commande_id: c.id } });
+        return {
+          uuid: c.uuid,
+          statut: c.statut,
+          quantite: c.quantite,
+          codes_livres: livres,
+          // Une commande payée qui n'a pas livré son compte est un incident :
+          // c'est ce que le support doit repérer d'un coup d'œil.
+          livraison_incomplete: c.statut === StatutCommande.PAYEE && livres < c.quantite,
+          prix_unitaire: c.prix_unitaire,
+          montant_total: c.montant_total,
+          devise: c.devise,
+          plan: { code: c.plan?.code, libelle: c.plan?.libelle },
+          acheteur: {
+            nom: [brut.u_prenom, brut.u_nom].filter(Boolean).join(' ') || null,
+            email: brut.u_email ?? null,
+          },
+          date_creation: c.date_creation,
+          date_paiement: c.date_paiement,
+        };
+      }),
+    );
+  }
+
+  /** Les codes d'une commande, avec leur état d'usage — vue support. */
+  async codesDeLaCommande(uuid: string) {
+    const commande = await this.commandes.findOne({ where: { uuid } });
+    if (!commande) throw new NotFoundException('Commande introuvable');
+
+    return this.dataSource.query(
+      `SELECT c.code,
+              u.date_creation AS utilise_le,
+              b.email         AS beneficiaire_email,
+              NULLIF(TRIM(CONCAT(b.prenom, ' ', b.nom)), '') AS beneficiaire_nom
+         FROM codes c
+         LEFT JOIN codes_utilisations u ON u.code_id = c.id
+         LEFT JOIN utilisateurs b      ON b.id = u.utilisateur_id
+        WHERE c.commande_id = $1
+        ORDER BY c.id`,
+      [commande.id],
+    );
+  }
+
+  /**
+   * Relance la livraison d'une commande payée dont les codes manquent.
+   *
+   * Existe pour le cas que `honorerCommande` journalise en erreur : des
+   * collisions répétées ont fait livrer moins que payé. Sans ce recours, la
+   * seule issue serait d'écrire en base à la main.
+   */
+  async completerLivraison(uuid: string): Promise<number> {
+    const commande = await this.commandes.findOne({ where: { uuid } });
+    if (!commande) throw new NotFoundException('Commande introuvable');
+    if (commande.statut !== StatutCommande.PAYEE) {
+      throw new ConflictException('Seule une commande payée peut être complétée.');
+    }
+
+    const livres = await this.codes.count({ where: { commande_id: commande.id } });
+    const manquants = commande.quantite - livres;
+    if (manquants <= 0) {
+      throw new ConflictException(`Cette commande a déjà livré ses ${commande.quantite} codes.`);
+    }
+
+    // On n'engendre QUE les manquants : régénérer tout doublerait les codes
+    // déjà envoyés par courriel.
+    const codes = await this.engendrerCodes({ ...commande, quantite: manquants } as CommandeCode);
+    await this.envoyerParCourriel(commande, codes, true).catch((err) =>
+      this.logger.error(`Complément de la commande ${uuid} : courriel non envoyé — ${err?.message ?? err}`),
+    );
+
+    this.logger.log(`Commande ${uuid} complétée : ${codes.length} code(s) supplémentaire(s).`);
+    return codes.length;
+  }
+
   private async engendrerCodes(commande: CommandeCode): Promise<string[]> {
     const crees: string[] = [];
 
@@ -201,7 +305,7 @@ export class CommandesCodesService {
     return `EDK-${corps}`;
   }
 
-  private async envoyerParCourriel(commande: CommandeCode, codes: string[]): Promise<void> {
+  private async envoyerParCourriel(commande: CommandeCode, codes: string[], complement = false): Promise<void> {
     const acheteur = await this.utilisateurs.findOne({ where: { id: commande.utilisateur_id } });
     if (!acheteur?.email) {
       this.logger.warn(`Commande ${commande.uuid} : aucun courriel pour l'acheteur.`);

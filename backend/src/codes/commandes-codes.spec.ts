@@ -136,3 +136,54 @@ describe('CommandesCodesService', () => {
     });
   });
 });
+
+describe('CommandesCodesService — vue back-office', () => {
+  let commandes: any, codes: any, dataSource: any, service: CommandesCodesService;
+
+  beforeEach(() => {
+    commandes = {
+      findOne: jest.fn().mockResolvedValue({
+        id: 1, uuid: 'c-1', quantite: 5, statut: StatutCommande.PAYEE,
+        pays: 'benin', utilisateur_id: 7, plan_id: 3,
+      }),
+      save: jest.fn(async (d) => d),
+      update: jest.fn(),
+      createQueryBuilder: jest.fn(),
+    };
+    codes = { count: jest.fn().mockResolvedValue(2) };
+    dataSource = {
+      query: jest.fn(async (sql: string) => {
+        if (!sql.includes('INSERT INTO codes')) return [];
+        const n = (sql.match(/'ACHAT'/g) || []).length;
+        return Array.from({ length: n }, (_, i) => ({ id: 100 + i, code: `EDK-NEW${i}` }));
+      }),
+    };
+    service = new CommandesCodesService(
+      commandes, {} as any, { findOne: jest.fn().mockResolvedValue({ email: 'a@b.c' }) } as any,
+      codes, dataSource, { sendPersonalizedEmail: jest.fn() } as any,
+    );
+  });
+
+  describe('complément de livraison', () => {
+    it('n’engendre QUE les codes manquants', async () => {
+      // 2 livrés sur 5 : régénérer les 5 doublerait ceux déjà envoyés par
+      // courriel à l'acheteur.
+      expect(await service.completerLivraison('c-1')).toBe(3);
+    });
+
+    it('refuse une commande déjà complète', async () => {
+      codes.count.mockResolvedValue(5);
+      await expect(service.completerLivraison('c-1')).rejects.toThrow(/déjà livré/);
+    });
+
+    it('refuse une commande non payée', async () => {
+      commandes.findOne.mockResolvedValue({ id: 1, uuid: 'c-1', quantite: 5, statut: StatutCommande.EN_ATTENTE });
+      await expect(service.completerLivraison('c-1')).rejects.toThrow(/payée/);
+    });
+
+    it('refuse une commande introuvable', async () => {
+      commandes.findOne.mockResolvedValue(null);
+      await expect(service.completerLivraison('inconnue')).rejects.toBeInstanceOf(NotFoundException);
+    });
+  });
+});

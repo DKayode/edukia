@@ -148,6 +148,22 @@ export const codesService = {
     const pays = localStorage.getItem('country') || 'benin';
     return `${base}/admin/codes/campagnes/${uuid}/export?country=${pays}`;
   },
+
+  // ── Achats groupés ────────────────────────────────────────────────────
+  async commandes(params: { statut?: string; recherche?: string } = {}): Promise<CommandeGroupee[]> {
+    const q = new URLSearchParams();
+    if (params.statut) q.set('statut', params.statut);
+    if (params.recherche) q.set('recherche', params.recherche);
+    return api.get<CommandeGroupee[]>(`/admin/codes/commandes${q.toString() ? `?${q}` : ''}`);
+  },
+
+  async codesDeLaCommande(uuid: string): Promise<CodeDeCommande[]> {
+    return api.get<CodeDeCommande[]>(`/admin/codes/commandes/${uuid}/codes`);
+  },
+
+  async completerCommande(uuid: string): Promise<{ codes_ajoutes: number }> {
+    return api.post<{ codes_ajoutes: number }>(`/admin/codes/commandes/${uuid}/completer`, {});
+  },
 };
 
 /** Libellé lisible des effets d'un code — un code sans effet ne fait rien. */
@@ -174,3 +190,26 @@ export const libelleEffets = (effets?: CodeEffet[] | null): string => {
 /** `usage_max_total` à `null` veut dire illimité, pas zéro. */
 export const libelleUsage = (c: Code): string =>
   c.usage_max_total == null ? `${c.usage_actuel} / ∞` : `${c.usage_actuel} / ${c.usage_max_total}`;
+
+export interface CommandeGroupee {
+  uuid: string;
+  statut: 'EN_ATTENTE' | 'PAYEE' | 'ANNULEE' | 'REMBOURSEE';
+  quantite: number;
+  codes_livres: number;
+  /** Commande payée dont les codes manquent — un incident à traiter. */
+  livraison_incomplete: boolean;
+  prix_unitaire: number;
+  montant_total: number;
+  devise: string;
+  plan: { code?: string; libelle?: string };
+  acheteur: { nom: string | null; email: string | null };
+  date_creation: string;
+  date_paiement: string | null;
+}
+
+export interface CodeDeCommande {
+  code: string;
+  utilise_le: string | null;
+  beneficiaire_email: string | null;
+  beneficiaire_nom: string | null;
+}
