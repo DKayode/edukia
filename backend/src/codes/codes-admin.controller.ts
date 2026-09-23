@@ -1,5 +1,5 @@
 import { Body, Controller, Delete, Get, Header, Param, Post, Put, Query, Request, UseGuards } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RoleGuard } from '../auth/guards/role.guard';
@@ -10,6 +10,7 @@ import { CreateCodeDto } from './dto/create-code.dto';
 import { FilterCodesDto } from './dto/filter-codes.dto';
 import { GenererCampagneDto } from './dto/generer-campagne.dto';
 import { UpdateCodeDto } from './dto/update-code.dto';
+import { CommandesCodesService } from './commandes-codes.service';
 
 @ApiTags('codes-admin')
 @ApiBearerAuth()
@@ -17,7 +18,47 @@ import { UpdateCodeDto } from './dto/update-code.dto';
 @Roles(RoleType.ADMIN)
 @Controller('admin/codes')
 export class CodesAdminController {
-  constructor(private readonly codesService: CodesService) {}
+  constructor(
+    private readonly codesService: CodesService,
+    private readonly commandes_: CommandesCodesService,
+  ) {}
+
+
+  // ── Commandes groupées ───────────────────────────────────────────────────
+
+  @Get('commandes')
+  @ApiOperation({
+    summary: 'Lister les achats groupés',
+    description:
+      'Répond à la question du support : « il dit avoir payé, où en est-il ? ». ' +
+      '`livraison_incomplete` signale une commande payée dont les codes manquent.',
+  })
+  @ApiQuery({ name: 'statut', required: false })
+  @ApiQuery({ name: 'recherche', required: false, description: 'Nom, courriel ou identifiant de commande' })
+  commandes(
+    @CurrentCountry() pays: string,
+    @Query('statut') statut?: string,
+    @Query('recherche') recherche?: string,
+  ) {
+    return this.commandes_.listeAdmin(pays, { statut: statut as any, recherche });
+  }
+
+  @Get('commandes/:uuid/codes')
+  @ApiOperation({ summary: 'Les codes d’une commande, et qui les a utilisés' })
+  codesDeLaCommande(@Param('uuid') uuid: string) {
+    return this.commandes_.codesDeLaCommande(uuid);
+  }
+
+  @Post('commandes/:uuid/completer')
+  @ApiOperation({
+    summary: 'Relivrer les codes manquants d’une commande payée',
+    description:
+      'Pour le cas où des collisions répétées ont fait livrer moins que payé. ' +
+      'N’engendre QUE les manquants — régénérer tout doublerait les codes déjà envoyés.',
+  })
+  completer(@Param('uuid') uuid: string) {
+    return this.commandes_.completerLivraison(uuid).then((n) => ({ codes_ajoutes: n }));
+  }
 
   @Get()
   @ApiOperation({

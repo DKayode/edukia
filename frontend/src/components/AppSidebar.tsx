@@ -141,6 +141,7 @@ const navTree: NavItem[] = [
       { title: "Abonnements", icon: CreditCard, url: "/admin/abonnements" },
       { title: "Plans", icon: Tag, url: "/admin/abonnements/plans" },
       { title: "Quotas gratuits", icon: Gauge, url: "/admin/abonnements/quotas" },
+      { title: "Achats groupés", icon: Ticket, url: "/admin/abonnements/achats-groupes" },
       // Placé juste après les réglages qu'il rend effectifs : c'est le seul
       // interrupteur qui refuse réellement un accès.
       { title: "Verrou d'accès", icon: Lock, url: "/admin/abonnements/verrou" },
