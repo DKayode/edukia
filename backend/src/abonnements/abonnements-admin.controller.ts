@@ -203,6 +203,22 @@ export class AbonnementsAdminController {
     return this.abonnementsService.prolonger(uuid, dto);
   }
 
+  @Post(':uuid/reactiver')
+  @ApiOperation({
+    summary: 'Revenir sur une annulation',
+    description:
+      'Rend son statut à un abonnement annulé en conservant ses dates d’origine — l’abonné ne ' +
+      'gagne pas une période pleine parce qu’une erreur a été corrigée. Un abonnement dont la ' +
+      'date de fin est déjà passée repasse en EXPIRE, pas en ACTIF.',
+  })
+  reactiver(
+    @Param('uuid') uuid: string,
+    @Body() body: { motif?: string },
+    @Request() req,
+  ) {
+    return this.abonnementsService.reactiver(uuid, body?.motif, req.user?.utilisateurId);
+  }
+
   @Post(':uuid/annuler')
   @ApiOperation({ summary: 'Annuler un abonnement' })
   annuler(@Param('uuid') uuid: string, @Body() body: { motif?: string }) {

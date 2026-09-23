@@ -18,11 +18,12 @@ import { RevenueCatProvider } from './providers/revenuecat.provider';
 import { PaiementProviderRegistry } from './providers/paiement-provider.registry';
 import { PAIEMENT_PROVIDERS } from './shared/paiement.tokens';
 import { WebhooksController } from './webhooks.controller';
+import { PlanAbonnement } from '../abonnements/entities/plan-abonnement.entity';
 
 @Module({
   imports: [
     ConfigModule,
-    TypeOrmModule.forFeature([Paiement, PaiementWebhook, ConfigurationPaiement, Abonnement, Utilisateur]),
+    TypeOrmModule.forFeature([PlanAbonnement, Paiement, PaiementWebhook, ConfigurationPaiement, Abonnement, Utilisateur]),
     AbonnementsModule,
   ],
   controllers: [PaiementsController, PaiementsAdminController, WebhooksController],

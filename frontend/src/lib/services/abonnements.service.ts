@@ -228,6 +228,11 @@ export const abonnementsService = {
   async annuler(uuid: string, motif?: string): Promise<Abonnement> {
     return api.post<Abonnement>(`/admin/abonnements/${uuid}/annuler`, { motif });
   },
+
+  /** Revient sur une annulation, en conservant les dates d'origine. */
+  async reactiver(uuid: string, motif?: string): Promise<Abonnement> {
+    return api.post<Abonnement>(`/admin/abonnements/${uuid}/reactiver`, { motif });
+  },
 };
 
 /**

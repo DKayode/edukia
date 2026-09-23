@@ -2,7 +2,7 @@ import { BadRequestException, ConflictException, Injectable, Logger, NotFoundExc
 import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { ArrayContains, DataSource, Repository } from 'typeorm';
 import { AbonnementsService } from '../abonnements/abonnements.service';
 import { ParrainageService } from '../abonnements/parrainage.service';
 import { TypeEvenementAbonnement } from '../abonnements/entities/abonnement-evenement.entity';
@@ -17,6 +17,7 @@ import { InitierPaiementDto } from './dto/initier-paiement.dto';
 import { PaiementCredentialsService } from './paiement-credentials.service';
 import { PaiementProviderRegistry } from './providers/paiement-provider.registry';
 import { MethodePaiement, ModePaiement, PrestatairePaiement, StatutPaiement } from './shared/paiement.enums';
+import { PlanAbonnement } from '../abonnements/entities/plan-abonnement.entity';
 
 const STATUTS_FINAUX = new Set([
   StatutPaiement.REUSSI,
@@ -51,6 +52,7 @@ export class PaiementsService {
     @InjectRepository(ConfigurationPaiement) private readonly configurations: Repository<ConfigurationPaiement>,
     @InjectRepository(Abonnement) private readonly abonnements: Repository<Abonnement>,
     @InjectRepository(Utilisateur) private readonly utilisateurs: Repository<Utilisateur>,
+    @InjectRepository(PlanAbonnement) private readonly plans: Repository<PlanAbonnement>,
     private readonly providers: PaiementProviderRegistry,
     private readonly abonnementsService: AbonnementsService,
     private readonly parrainageService: ParrainageService,
@@ -379,10 +381,19 @@ export class PaiementsService {
   async traiterWebhook(webhookId: number, prestataire: PrestatairePaiement, payload: unknown) {
     const provider = this.providers.get(prestataire);
     const evt = provider.parserWebhook(payload);
-    const paiement = evt.referencePrestataire
+    let paiement = evt.referencePrestataire
       ? await this.paiements.findOne({ where: { prestataire, reference_prestataire: evt.referencePrestataire } })
         ?? (evt.reference ? await this.paiements.findOne({ where: { prestataire, reference: evt.reference } }) : null)
       : await this.paiements.findOne({ where: { prestataire, reference: evt.reference } });
+    // Un achat in-app n'a PAS été initié chez nous : l'utilisateur paie
+    // directement Apple ou Google, et RevenueCat nous prévient après coup. Il
+    // n'existe donc aucun paiement à retrouver — il faut le créer ici, sinon la
+    // notification est jetée et l'abonnement reste en attente alors que le
+    // store, lui, considère la personne comme abonnée.
+    if (!paiement && prestataire === PrestatairePaiement.REVENUECAT) {
+      paiement = await this.creerPaiementAchatInApp(evt, payload);
+    }
+
     if (!paiement) {
       this.logger.warn(`Webhook ${prestataire} ignoré : aucun paiement trouvé (ref=${evt.reference}, refPrestataire=${evt.referencePrestataire})`);
       await this.webhooks.update(webhookId, { traite: true, erreur_traitement: 'PAIEMENT_INTROUVABLE_IGNORE' });
@@ -580,6 +591,94 @@ export class PaiementsService {
     if (statut === StatutPaiement.REUSSI) paiement.date_confirmation = new Date();
     await this.paiements.save(paiement);
     if (statut === StatutPaiement.REUSSI) await this.activerAbonnementPaye(paiement);
+  }
+
+
+  /**
+   * Fabrique le paiement d'un achat in-app, que le store a déjà encaissé.
+   *
+   * Contrairement au mobile money, rien n'a été initié chez nous : on reconstruit
+   * la ligne depuis la notification. Trois éléments doivent s'y retrouver, sinon
+   * on ne rattache rien plutôt que de deviner :
+   *
+   *  - `app_user_id` doit être l'uuid d'un compte Edukia ;
+   *  - `product_id` doit désigner un plan, via `identifiants_store` ;
+   *  - le pays vient du COMPTE, pas du store : « country_code » décrit la
+   *    boutique où l'achat a eu lieu, pas le pays d'inscription.
+   *
+   * Le montant et la devise sont ceux du store — 29,99 USD, et non le prix du
+   * plan en XOF. C'est la vérité de la transaction, et `appliquerStatutVerifie`
+   * compare ensuite ce montant à lui-même.
+   */
+  private async creerPaiementAchatInApp(
+    evt: { reference: string; referencePrestataire?: string; montant: number; devise: string; methode?: MethodePaiement },
+    payload: unknown,
+  ): Promise<Paiement | null> {
+    const event = (payload as any)?.event ?? {};
+    const identifiantProduit = String(event.product_id ?? '').trim();
+
+    const utilisateur = evt.reference
+      ? await this.utilisateurs.findOne({ where: { uuid: evt.reference } })
+      : null;
+    if (!utilisateur) {
+      this.logger.warn(`Achat in-app ignoré : aucun compte pour app_user_id=${evt.reference}`);
+      return null;
+    }
+
+    const plan = identifiantProduit
+      ? await this.plans.findOne({
+          where: { pays: utilisateur.pays, identifiants_store: ArrayContains([identifiantProduit]) },
+        })
+      : null;
+    if (!plan) {
+      this.logger.warn(
+        `Achat in-app ignoré : produit « ${identifiantProduit} » rattaché à aucun plan (${utilisateur.pays}). ` +
+          `À renseigner dans Abonnements → Plans.`,
+      );
+      return null;
+    }
+
+    // Réutiliser la souscription en attente plutôt que d'en empiler une : c'est
+    // celle que l'utilisateur voit dans l'application.
+    const abonnement =
+      (await this.abonnements.findOne({
+        where: { utilisateur_id: utilisateur.id, plan_id: plan.id, statut: StatutAbonnement.EN_ATTENTE },
+        order: { date_creation: 'DESC' },
+      })) ??
+      (await this.abonnements.save(
+        this.abonnements.create({
+          pays: utilisateur.pays,
+          utilisateur_id: utilisateur.id,
+          plan_id: plan.id,
+          statut: StatutAbonnement.EN_ATTENTE,
+          devise: evt.devise,
+          montant_paye: 0,
+        }),
+      ));
+
+    this.logger.log(
+      `Achat in-app rattaché : compte ${utilisateur.id}, plan ${plan.code}, ` +
+        `abonnement ${abonnement.uuid}, transaction ${evt.referencePrestataire ?? '?'}`,
+    );
+
+    return this.paiements.save(
+      this.paiements.create({
+        pays: utilisateur.pays,
+        // La transaction du store fait référence : elle est stable et unique,
+        // là où `app_user_id` se répète à chaque renouvellement.
+        reference: evt.referencePrestataire ?? `IAP-${Date.now()}-${utilisateur.id}`,
+        reference_prestataire: evt.referencePrestataire ?? null,
+        utilisateur_id: utilisateur.id,
+        abonnement_id: abonnement.id,
+        montant: evt.montant,
+        devise: evt.devise,
+        prestataire: PrestatairePaiement.REVENUECAT,
+        mode: String(event.environment ?? '').toUpperCase() === 'PRODUCTION' ? ModePaiement.LIVE : ModePaiement.SANDBOX,
+        methode: evt.methode ?? MethodePaiement.IAP,
+        statut: StatutPaiement.EN_ATTENTE,
+        payload_initiation: payload as any,
+      }),
+    );
   }
 
   private async activerAbonnementPaye(paiement: Paiement) {

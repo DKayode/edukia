@@ -42,6 +42,8 @@ describe('PaiementsService - remboursement et commission', () => {
       configurations as any,
       abonnements as any,
       {} as any,
+      // Dépôt des plans : sert au rattachement des achats in-app.
+      { findOne: jest.fn().mockResolvedValue(null) } as any,
       {} as any,
       abonnementsService as any,
       parrainageService as unknown as ParrainageService,
