@@ -18,6 +18,8 @@ import { PaiementCredentialsService } from './paiement-credentials.service';
 import { PaiementProviderRegistry } from './providers/paiement-provider.registry';
 import { MethodePaiement, ModePaiement, PrestatairePaiement, StatutPaiement } from './shared/paiement.enums';
 import { PlanAbonnement } from '../abonnements/entities/plan-abonnement.entity';
+import { CommandesCodesService } from '../codes/commandes-codes.service';
+import { StatutCommande } from '../codes/entities/commande-code.entity';
 
 const STATUTS_FINAUX = new Set([
   StatutPaiement.REUSSI,
@@ -58,6 +60,7 @@ export class PaiementsService {
     private readonly parrainageService: ParrainageService,
     private readonly credentials: PaiementCredentialsService,
     private readonly dataSource: DataSource,
+    private readonly commandes: CommandesCodesService,
     private readonly config: ConfigService,
   ) {}
 
@@ -89,6 +92,19 @@ export class PaiementsService {
   }
 
   async initier(pays: string, utilisateurId: number, dto: InitierPaiementDto) {
+    // Un paiement vise soit un abonnement pour soi, soit une commande de codes
+    // à distribuer. Exiger l'un des deux, et refuser les deux à la fois : sans
+    // cette garde, un appel portant les deux paierait l'un et créditerait
+    // l'autre.
+    if (!dto.abonnement_uuid === !dto.commande_uuid) {
+      throw new BadRequestException(
+        'Indiquez soit `abonnement_uuid`, soit `commande_uuid` — un seul des deux.',
+      );
+    }
+    if (dto.commande_uuid) {
+      return this.initierCommande(pays, utilisateurId, dto);
+    }
+
     const abonnement = await this.abonnements.findOne({ where: { uuid: dto.abonnement_uuid, utilisateur_id: utilisateurId, pays } });
     if (!abonnement) throw new NotFoundException('Abonnement introuvable');
     if (abonnement.statut !== StatutAbonnement.EN_ATTENTE) {
@@ -590,7 +606,14 @@ export class PaiementsService {
     paiement.statut = statut;
     if (statut === StatutPaiement.REUSSI) paiement.date_confirmation = new Date();
     await this.paiements.save(paiement);
-    if (statut === StatutPaiement.REUSSI) await this.activerAbonnementPaye(paiement);
+    if (statut === StatutPaiement.REUSSI) {
+      // Un paiement vise soit un abonnement, soit une commande de codes.
+      if (paiement.commande_id) {
+        await this.commandes.honorerCommande(paiement.commande_id, paiement.id);
+      } else {
+        await this.activerAbonnementPaye(paiement);
+      }
+    }
   }
 
 
@@ -610,6 +633,77 @@ export class PaiementsService {
    * plan en XOF. C'est la vérité de la transaction, et `appliquerStatutVerifie`
    * compare ensuite ce montant à lui-même.
    */
+
+  /**
+   * Le pendant de `initier()` pour un achat groupé.
+   *
+   * Même prestataire, même webhook, même cycle : seule la CIBLE change. Le
+   * montant vient de la commande — figé à sa création — et non du prix courant
+   * du plan, qui peut avoir bougé entre-temps.
+   */
+  private async initierCommande(pays: string, utilisateurId: number, dto: InitierPaiementDto) {
+    // `parUuid` refuse déjà la commande d'autrui, avec le même message qu'une
+    // absence : ne pas révéler qu'elle existe.
+    const commande = await this.commandes.parUuid(dto.commande_uuid!, utilisateurId);
+    if (commande.statut !== StatutCommande.EN_ATTENTE) {
+      throw new ConflictException('Seule une commande en attente peut être payée.');
+    }
+
+    const config = await this.configurationActive(pays, dto.prestataire);
+    const montant = Number(commande.montant_total);
+    if (montant <= 0) throw new ConflictException("Cette commande ne nécessite pas de paiement");
+    this.verifierPlafonds(config, montant);
+
+    const utilisateur = await this.utilisateurs.findOne({ where: { id: utilisateurId } });
+    if (!utilisateur) throw new NotFoundException('Utilisateur introuvable');
+
+    const provider = this.providers.get(config.prestataire);
+    const reference = `EDKC-${Date.now()}-${utilisateurId}-${commande.id}`;
+    const paiement = await this.paiements.save(this.paiements.create({
+      pays,
+      reference,
+      utilisateur_id: utilisateurId,
+      commande_id: commande.id,
+      montant,
+      devise: config.devise,
+      prestataire: config.prestataire,
+      mode: config.mode,
+      methode: dto.methode ?? MethodePaiement.MOBILE_MONEY,
+      statut: StatutPaiement.INITIE,
+      date_expiration: new Date(Date.now() + 30 * 60 * 1000),
+    }));
+
+    const frontendBaseUrl = this.baseUrlPublique(process.env.FRONTEND_URL, 'https://educ-prime.com');
+    const webhookBaseUrl = this.baseUrlPublique(
+      process.env.PAIEMENT_WEBHOOK_BASE_URL ?? process.env.API_PUBLIC_URL,
+      'https://api.educ-prime.com',
+    );
+    const resultat = await provider.initier({
+      reference,
+      mode: config.mode,
+      montant,
+      devise: config.devise,
+      client: {
+        nom: [utilisateur.prenom, utilisateur.nom].filter(Boolean).join(' ') || utilisateur.email,
+        email: utilisateur.email,
+        telephone: dto.telephone ?? utilisateur.telephone,
+      },
+      urlRetour: `${frontendBaseUrl}/mes-codes?paiement=${paiement.uuid}`,
+      urlWebhook: `${webhookBaseUrl}/paiements/webhooks/${config.prestataire.toLowerCase()}`,
+      metadata: { paiementUuid: paiement.uuid, commandeUuid: commande.uuid },
+      credentials: this.credentials.decrypt(config.credentials_chiffres),
+    });
+
+    paiement.statut = StatutPaiement.EN_ATTENTE;
+    paiement.reference_prestataire = resultat.referencePrestataire ?? null;
+    paiement.url_paiement = resultat.urlPaiement ?? null;
+    paiement.token_client = resultat.tokenClient ?? null;
+    paiement.payload_initiation = resultat.payload as any;
+    const sauvegarde = await this.paiements.save(paiement);
+    await this.commandes.lierPaiement(commande.id, sauvegarde.id);
+    return sauvegarde;
+  }
+
   private async creerPaiementAchatInApp(
     evt: { reference: string; referencePrestataire?: string; montant: number; devise: string; methode?: MethodePaiement },
     payload: unknown,

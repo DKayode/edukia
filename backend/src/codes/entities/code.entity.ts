@@ -14,6 +14,14 @@ export enum OrigineCode {
   INSCRIPTION = 'INSCRIPTION',
   /** Créé au back-office, seul ou par campagne. */
   ADMIN = 'ADMIN',
+  /**
+   * Engendré par un achat groupé d'abonnements.
+   *
+   * La distinction n'est pas cosmétique : elle autorise l'acheteur à utiliser
+   * un de ses propres codes, ce qu'interdit la règle d'auto-utilisation posée
+   * pour le parrainage — où s'auto-parrainer n'aurait aucun sens.
+   */
+  ACHAT = 'ACHAT',
 }
 
 @Entity('codes')
@@ -75,6 +83,10 @@ export class Code {
 
   @Column({ type: 'int', nullable: true })
   campagne_id: number | null;
+
+  /** La commande qui a engendré ce code, pour les codes d'origine ACHAT. */
+  @Column({ type: 'int', nullable: true })
+  commande_id: number | null;
 
   @ManyToOne(() => CampagneCode, { nullable: true })
   @JoinColumn({ name: 'campagne_id' })

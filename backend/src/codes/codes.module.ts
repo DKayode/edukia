@@ -12,6 +12,11 @@ import { CampagneCode } from './entities/campagne-code.entity';
 import { CodeUtilisation } from './entities/code-utilisation.entity';
 import { Code } from './entities/code.entity';
 import { CodeEffet } from './entities/code-effet.entity';
+import { CommandesCodesService } from './commandes-codes.service';
+import { CommandeCode } from './entities/commande-code.entity';
+import { MailModule } from '../mail/mail.module';
+import { PlanAbonnement } from '../abonnements/entities/plan-abonnement.entity';
+import { Utilisateur } from '../utilisateurs/entities/utilisateur.entity';
 
 const entierPositif = (valeur: string | undefined, valeurParDefaut: number) => {
   const resultat = Number(valeur);
@@ -28,8 +33,8 @@ const entierPositif = (valeur: string | undefined, valeurParDefaut: number) => {
  * souscription.
  */
 @Module({
-  imports: [
-    TypeOrmModule.forFeature([Code, CodeEffet, CampagneCode, CodeUtilisation]),
+  imports: [MailModule, 
+    TypeOrmModule.forFeature([Utilisateur, PlanAbonnement, CommandeCode, Code, CodeEffet, CampagneCode, CodeUtilisation]),
     ThrottlerModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
@@ -62,11 +67,11 @@ const entierPositif = (valeur: string | undefined, valeurParDefaut: number) => {
     AbonnementsModule,
   ],
   controllers: [CodesController, CodesAdminController],
-  providers: [
+  providers: [CommandesCodesService, 
     CodesService,
     CodeValidationService,
     CodeValidationRateLimitGuard,
   ],
-  exports: [CodesService, CodeValidationService],
+  exports: [CommandesCodesService, CodesService, CodeValidationService],
 })
 export class CodesModule {}

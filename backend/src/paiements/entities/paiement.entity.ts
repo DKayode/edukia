@@ -25,6 +25,15 @@ export class Paiement {
   @Column({ type: 'int', nullable: true })
   abonnement_id: number | null;
 
+  /**
+   * La commande groupée payée, quand il ne s'agit pas d'un abonnement.
+   *
+   * Exclusif de `abonnement_id` : un paiement vise soit un abonnement pour soi,
+   * soit un lot de codes à distribuer.
+   */
+  @Column({ type: 'int', nullable: true })
+  commande_id: number | null;
+
   @Column({ type: 'numeric', precision: 14, scale: 2, transformer: { to: (v: number) => v, from: (v: string) => Number(v ?? 0) } })
   montant: number;
 

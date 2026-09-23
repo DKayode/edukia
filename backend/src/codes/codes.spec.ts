@@ -132,6 +132,33 @@ describe('CodeValidationService', () => {
     });
   });
 
+  describe('codes achetés — auto-utilisation permise', () => {
+    it('laisse l’acheteur utiliser un code qu’il a payé', async () => {
+      // Il l'a payé, rien ne l'oblige à le donner : un parent qui équipe sa
+      // famille se compte dedans.
+      brancher(codeBase({ proprietaire_id: 10, origine: 'ACHAT' }));
+      expect((await service.valider('X', 10)).valide).toBe(true);
+    });
+
+    it('continue de refuser l’auto-parrainage', async () => {
+      // La règle garde tout son sens pour un code d'inscription : ni remise
+      // offerte à soi-même, ni commission versée à soi-même.
+      brancher(codeBase({ proprietaire_id: 10, origine: 'INSCRIPTION' }));
+      expect(await service.valider('X', 10)).toMatchObject({ motif: 'AUTO_UTILISATION' });
+    });
+
+    it('refuse aussi l’auto-usage d’un code du back-office', async () => {
+      brancher(codeBase({ proprietaire_id: 10, origine: 'ADMIN' }));
+      expect(await service.valider('X', 10)).toMatchObject({ motif: 'AUTO_UTILISATION' });
+    });
+
+    it('un code acheté reste à usage unique', async () => {
+      brancher(codeBase({ proprietaire_id: 10, origine: 'ACHAT', usage_max_par_utilisateur: 1 }));
+      journal = [{ code_id: 1, utilisateur_id: 10 }];
+      expect(await service.valider('X', 10)).toMatchObject({ motif: 'DEJA_UTILISE' });
+    });
+  });
+
   describe('validation sans compte', () => {
     // La route est ouverte : un code se saisit souvent avant l'inscription.
 
