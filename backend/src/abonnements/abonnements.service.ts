@@ -274,6 +274,78 @@ export class AbonnementsService {
     return this.findByUuid(uuid);
   }
 
+
+  /**
+   * Rend son statut à un abonnement annulé, sans toucher à ses dates.
+   *
+   * `activer()` refuse explicitement un abonnement ANNULE, et à raison : on ne
+   * réactive pas par inadvertance. Mais une annulation par erreur — ou un
+   * remboursement revenu — laissait alors l'administration sans recours, sinon
+   * créer une nouvelle souscription à 0 F qui perd le lien avec le paiement
+   * encaissé.
+   *
+   * Les dates d'ORIGINE sont conservées : l'abonné ne gagne pas une période
+   * pleine parce qu'on a corrigé une erreur, et il ne perd pas non plus les
+   * jours écoulés. Un abonnement dont la date de fin est déjà passée est donc
+   * remis en EXPIRE, pas en ACTIF — le réactiver le rendrait actif tout en
+   * étant échu, ce que `check()` traiterait comme expiré de toute façon.
+   */
+  async reactiver(uuid: string, motif?: string, adminId?: number): Promise<Abonnement> {
+    const abonnement = await this.findByUuid(uuid);
+
+    if (abonnement.statut === StatutAbonnement.ACTIF) {
+      throw new ConflictException('Cet abonnement est déjà actif');
+    }
+    if (abonnement.statut !== StatutAbonnement.ANNULE) {
+      throw new ConflictException(
+        `Seul un abonnement annulé peut être réactivé (celui-ci est ${abonnement.statut}).`,
+      );
+    }
+    if (!abonnement.date_debut || !abonnement.date_fin) {
+      throw new ConflictException(
+        "Cet abonnement n'a jamais été activé : il n'a pas de période à restaurer. Activez-le plutôt.",
+      );
+    }
+
+    const echu = abonnement.date_fin.getTime() <= Date.now();
+    abonnement.statut = echu ? StatutAbonnement.EXPIRE : StatutAbonnement.ACTIF;
+    abonnement.metadata = {
+      ...(abonnement.metadata ?? {}),
+      reactivation_manuelle: true,
+      reactive_par: adminId ?? null,
+      reactive_le: new Date().toISOString(),
+      motif_reactivation: motif ?? null,
+    };
+
+    let sauvegarde: Abonnement;
+    try {
+      sauvegarde = await this.abonnements.save(abonnement);
+    } catch (err) {
+      // L'index unique n'autorise qu'un actif par compte : si la personne s'est
+      // réabonnée entre-temps, on ne peut pas en rendre un second.
+      if (String(err?.code) === '23505') {
+        throw new ConflictException(
+          "Cet utilisateur a déjà un abonnement actif. Annulez-le avant de réactiver celui-ci.",
+        );
+      }
+      throw err;
+    }
+
+    await this.journaliser(sauvegarde.id, TypeEvenementAbonnement.ACTIVE, {
+      reactivation: true,
+      motif: motif ?? null,
+      date_debut: sauvegarde.date_debut,
+      date_fin: sauvegarde.date_fin,
+      par: adminId ?? null,
+    });
+
+    this.logger.log(
+      `Abonnement ${uuid} réactivé (${sauvegarde.statut}) par l'administrateur ${adminId ?? '?'}` +
+        (motif ? ` — ${motif}` : ''),
+    );
+    return this.findByUuid(sauvegarde.uuid);
+  }
+
   async activerApresPaiement(
     uuid: string,
     params: { montant: number; reference: string; paiementId: number; prestataire: string },

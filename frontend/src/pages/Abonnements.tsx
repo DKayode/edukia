@@ -33,6 +33,7 @@ import {
   Loader2,
   Search,
   HandCoins,
+  RotateCcw,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -75,6 +76,8 @@ export default function Abonnements() {
   const limit = 10;
 
   const [cible, setCible] = useState<Abonnement | null>(null);
+  const [cibleReactivation, setCibleReactivation] = useState<Abonnement | null>(null);
+  const [motifReactivation, setMotifReactivation] = useState("");
   const [montant, setMontant] = useState<number>(0);
   const [reference, setReference] = useState("");
   const [commentaire, setCommentaire] = useState("");
@@ -148,6 +151,30 @@ export default function Abonnements() {
     onError: (e: any) =>
       toast({ title: "Erreur", description: e?.message || "Échec", variant: "destructive" }),
   });
+
+  const reactivation = useMutation({
+    mutationFn: ({ uuid, motif }: { uuid: string; motif: string }) =>
+      abonnementsService.reactiver(uuid, motif),
+    onSuccess: (a) => {
+      rafraichir();
+      setCibleReactivation(null);
+      setMotifReactivation("");
+      toast({
+        title: a.statut === "EXPIRE" ? "Abonnement restauré, mais échu" : "Abonnement réactivé",
+        description:
+          a.statut === "EXPIRE"
+            ? "Sa date de fin était déjà passée : il est restauré en EXPIRÉ, pas en actif."
+            : "Ses dates d'origine sont conservées.",
+      });
+    },
+    onError: (e: any) =>
+      toast({ title: "Erreur", description: e?.message || "Échec", variant: "destructive" }),
+  });
+
+  const ouvrirReactivation = (a: Abonnement) => {
+    setCibleReactivation(a);
+    setMotifReactivation("");
+  };
 
   const ouvrirActivation = (a: Abonnement) => {
     setCible(a);
@@ -307,6 +334,17 @@ export default function Abonnements() {
                         <Button variant="ghost" size="sm" onClick={() => setJournalUuid(a.uuid)}>
                           <History className="h-4 w-4" />
                         </Button>
+                        {a.statut === "ANNULE" && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={reactivation.isPending}
+                            onClick={() => ouvrirReactivation(a)}
+                          >
+                            <RotateCcw className="mr-1 h-4 w-4" />
+                            Réactiver
+                          </Button>
+                        )}
                         {["EN_ATTENTE", "ACTIF"].includes(a.statut) && (
                           <Button
                             variant="ghost"
@@ -457,6 +495,68 @@ export default function Abonnements() {
           )}
         </DialogContent>
       </Dialog>
+
+      <Dialog open={!!cibleReactivation} onOpenChange={(o) => !o && setCibleReactivation(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Revenir sur l'annulation</DialogTitle>
+            <DialogDescription asChild>
+              <div className="space-y-2 text-sm">
+                <p>
+                  L'abonnement retrouve son statut avec ses <strong>dates d'origine</strong> — du{" "}
+                  {cibleReactivation?.date_debut
+                    ? new Date(cibleReactivation.date_debut).toLocaleDateString("fr-FR")
+                    : "?"}{" "}
+                  au{" "}
+                  {cibleReactivation?.date_fin
+                    ? new Date(cibleReactivation.date_fin).toLocaleDateString("fr-FR")
+                    : "?"}
+                  . L'abonné ne gagne pas une période pleine parce qu'une erreur a été corrigée.
+                </p>
+                {cibleReactivation?.date_fin &&
+                  new Date(cibleReactivation.date_fin).getTime() <= Date.now() && (
+                    <p className="text-amber-600">
+                      Sa date de fin est déjà passée : il sera restauré en <strong>expiré</strong>,
+                      pas en actif.
+                    </p>
+                  )}
+              </div>
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-2">
+            <Label htmlFor="motif-reactivation">Motif</Label>
+            <Textarea
+              id="motif-reactivation"
+              placeholder="Annulation par erreur, paiement confirmé depuis…"
+              value={motifReactivation}
+              onChange={(e) => setMotifReactivation(e.target.value)}
+            />
+            <p className="text-xs text-muted-foreground">
+              Consigné dans l'historique de l'abonnement, avec votre identifiant.
+            </p>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCibleReactivation(null)}>
+              Annuler
+            </Button>
+            <Button
+              disabled={reactivation.isPending || !motifReactivation.trim()}
+              onClick={() =>
+                reactivation.mutate({
+                  uuid: cibleReactivation!.uuid,
+                  motif: motifReactivation.trim(),
+                })
+              }
+            >
+              {reactivation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Réactiver
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
     </div>
   );
 }

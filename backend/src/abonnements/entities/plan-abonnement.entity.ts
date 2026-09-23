@@ -32,6 +32,17 @@ export class PlanAbonnement {
   @Column({ type: 'text', array: true, nullable: true })
   avantages: string[] | null;
 
+  /**
+   * Identifiants produit App Store / Play Store rattachés à ce plan.
+   *
+   * Un achat in-app est encaissé par le store ; RevenueCat nous le notifie avec
+   * un `product_id`, et c'est le seul lien qui permette de savoir quel plan a
+   * été acheté. Une liste, parce qu'un plan porte souvent un identifiant par
+   * store et en change au fil des versions de l'application.
+   */
+  @Column({ type: 'text', array: true, nullable: true })
+  identifiants_store: string[] | null;
+
   // `numeric` revient en chaîne depuis pg : la conversion est explicite pour que
   // le prix reste un nombre côté API et dans les calculs de remise (#247).
   @Column({ type: 'numeric', precision: 14, scale: 2, transformer: { to: (v: number) => v, from: (v: string) => (v === null ? null : Number(v)) } })
