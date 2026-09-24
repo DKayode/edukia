@@ -502,6 +502,20 @@ export class PaiementsService {
   async traiterWebhook(webhookId: number, prestataire: PrestatairePaiement, payload: unknown) {
     const provider = this.providers.get(prestataire);
     const evt = provider.parserWebhook(payload);
+
+    // Cycle de vie RevenueCat : résiliation et expiration ne sont pas des
+    // paiements. Une résiliation coupe le renouvellement sans révoquer l'accès
+    // (Apple/Google le laissent courir jusqu'à l'échéance) ; une expiration
+    // coupe l'accès. Ces cas agissent sur l'abonnement, pas sur un paiement, et
+    // ne doivent donc pas emprunter le chemin d'activation.
+    if (prestataire === PrestatairePaiement.REVENUECAT) {
+      const traite = await this.traiterCycleVieRevenueCat(payload);
+      if (traite) {
+        await this.webhooks.update(webhookId, { traite: true });
+        return;
+      }
+    }
+
     let paiement = evt.referencePrestataire
       ? await this.paiements.findOne({ where: { prestataire, reference_prestataire: evt.referencePrestataire } })
         ?? (evt.reference ? await this.paiements.findOne({ where: { prestataire, reference: evt.reference } }) : null)
@@ -809,6 +823,43 @@ export class PaiementsService {
     return sauvegarde;
   }
 
+  /**
+   * Traite les événements RevenueCat qui portent sur le cycle de vie de
+   * l'abonnement plutôt que sur un encaissement. Renvoie `true` s'il a pris
+   * l'événement en charge, `false` pour laisser le chemin d'activation
+   * s'occuper des achats et renouvellements.
+   */
+  private async traiterCycleVieRevenueCat(payload: unknown): Promise<boolean> {
+    const event = (payload as any)?.event ?? {};
+    const type = String(event.type ?? '').toUpperCase();
+    if (type !== 'CANCELLATION' && type !== 'EXPIRATION') return false;
+
+    const uuid = String(event.app_user_id ?? '').trim();
+    const identifiantProduit = String(event.product_id ?? '').trim();
+    const utilisateur = uuid ? await this.utilisateurs.findOne({ where: { uuid } }) : null;
+    if (!utilisateur) {
+      this.logger.warn(`Cycle de vie RevenueCat ${type} ignoré : aucun compte pour app_user_id=${uuid}`);
+      return true; // pris en charge (rien à faire), pour ne pas retomber sur le chemin d'activation
+    }
+
+    const plan = identifiantProduit
+      ? await this.plans.findOne({
+          where: { pays: utilisateur.pays, identifiants_store: ArrayContains([identifiantProduit]) },
+        })
+      : null;
+    if (!plan) {
+      this.logger.warn(`Cycle de vie RevenueCat ${type} ignoré : produit « ${identifiantProduit} » sans plan (${utilisateur.pays})`);
+      return true;
+    }
+
+    if (type === 'CANCELLATION') {
+      await this.abonnementsService.desactiverRenouvellementStore(utilisateur.id, plan.id);
+    } else {
+      await this.abonnementsService.expirerDepuisStore(utilisateur.id, plan.id);
+    }
+    return true;
+  }
+
   private async creerPaiementAchatInApp(
     evt: { reference: string; referencePrestataire?: string; montant: number; devise: string; methode?: MethodePaiement },
     payload: unknown,
@@ -884,11 +935,44 @@ export class PaiementsService {
     if (!paiement.abonnement_id) return;
     const abonnement = await this.abonnements.findOne({ where: { id: paiement.abonnement_id } });
     if (!abonnement) return;
+
+    // Achat in-app : Apple et Google fixent la période et gèrent le
+    // renouvellement. On lit ces vérités dans le payload du store plutôt que
+    // de recalculer une échéance sur la durée du plan, qui divergerait dès le
+    // premier renouvellement. Les autres prestataires ne renseignent rien et
+    // conservent le comportement historique.
+    const store = this.donneesStoreRevenueCat(paiement);
+
     await this.abonnementsService.activerApresPaiement(abonnement.uuid, {
       montant: paiement.montant,
       reference: paiement.reference,
       paiementId: paiement.id,
       prestataire: paiement.prestataire,
+      dateFin: store?.dateFin ?? null,
+      renouvellementAuto: store?.renouvellementAuto,
     });
+  }
+
+  /**
+   * Extrait du paiement in-app ce que seul le store connaît : l'échéance
+   * (`expiration_at_ms`) et si l'abonnement se renouvelle tout seul. Renvoie
+   * `null` pour tout ce qui n'est pas un achat RevenueCat — les autres
+   * prestataires n'ont pas ces notions.
+   */
+  private donneesStoreRevenueCat(
+    paiement: Paiement,
+  ): { dateFin: Date | null; renouvellementAuto: boolean } | null {
+    if (paiement.prestataire !== PrestatairePaiement.REVENUECAT) return null;
+    const event = (paiement.payload_initiation as any)?.event ?? {};
+    const type = String(event.type ?? '').toUpperCase();
+
+    const ms = Number(event.expiration_at_ms);
+    const dateFin = Number.isFinite(ms) && ms > 0 ? new Date(ms) : null;
+
+    // Un achat « non renouvelable » (NON_RENEWING_PURCHASE) est le seul cas
+    // in-app qui ne se reconduit pas ; tout le reste est un abonnement.
+    const renouvellementAuto = type !== 'NON_RENEWING_PURCHASE';
+
+    return { dateFin, renouvellementAuto };
   }
 }
