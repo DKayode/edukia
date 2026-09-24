@@ -193,6 +193,111 @@ export class PaiementsService {
     return this.findOne(pays, utilisateurId, uuid);
   }
 
+  /**
+   * Vérification à la demande, déclenchée par le mobile au retour du paiement.
+   *
+   * Le chemin nominal reste le webhook : c'est lui qui active en quelques
+   * secondes, sans que personne n'ait à demander. Cette route couvre le cas
+   * où il n'arrive pas — prestataire muet, endpoint mal déclaré, réseau
+   * coupé — pour que l'utilisateur n'attende pas le prochain passage du cron.
+   *
+   * Contrairement à `confirmerTransactionMobile`, elle ne prend aucun corps :
+   * la référence prestataire a été enregistrée à l'initiation. Le mobile n'a
+   * donc rien à transporter, ce qui la rend appelable après un retour par
+   * redirection, où l'application ne récupère parfois aucun identifiant.
+   *
+   * Idempotente : sur un paiement déjà dans un statut final, on renvoie
+   * l'état sans rappeler le prestataire.
+   */
+  async verifierMaintenant(pays: string, utilisateurId: number, uuid: string) {
+    const paiement = await this.paiements.findOne({ where: { uuid, pays, utilisateur_id: utilisateurId } });
+    if (!paiement) throw new NotFoundException('Paiement introuvable');
+
+    if (!STATUTS_FINAUX.has(paiement.statut)) {
+      if (!paiement.reference_prestataire) {
+        // Le paiement n'a jamais atteint le prestataire : il n'existe nulle
+        // part ailleurs que chez nous, et aucune vérification n'est possible.
+        // On le dit plutôt que de renvoyer un EN_ATTENTE qui laisse espérer.
+        throw new ConflictException({
+          code: 'PAIEMENT_NON_TRANSMIS',
+          message: 'Ce paiement n’a jamais été transmis au prestataire. Relancez-en un nouveau.',
+        });
+      }
+
+      const config = await this.configurationPourPaiement(paiement);
+      const provider = this.providers.get(paiement.prestataire);
+      try {
+        const statut = await provider.verifierStatut(
+          paiement.reference_prestataire,
+          this.credentials.decrypt(config?.credentials_chiffres),
+          paiement.mode,
+        );
+        await this.appliquerStatutVerifie(paiement, statut.statut, statut.montant, {
+          verification_a_la_demande: true,
+        });
+      } catch (err) {
+        if (err instanceof BadRequestException || err instanceof ConflictException) throw err;
+        // Le prestataire est injoignable ou répond de travers. Le cron
+        // repassera : on ne transforme pas une panne distante en échec.
+        this.logger.warn(`Vérification à la demande de ${uuid} échouée: ${err?.message ?? err}`);
+        throw new ServiceUnavailableException({
+          code: 'VERIFICATION_INDISPONIBLE',
+          message: 'Le prestataire est momentanément injoignable. Réessayez dans un instant.',
+        });
+      }
+    }
+
+    return this.etatPaiement(pays, utilisateurId, uuid);
+  }
+
+  /**
+   * Ce que le mobile a besoin de savoir en un seul appel : où en est le
+   * paiement, et surtout ce qu'il a débloqué. Interroger l'abonnement
+   * séparément ferait une seconde requête dont la réponse pourrait
+   * précéder l'activation.
+   */
+  private async etatPaiement(pays: string, utilisateurId: number, uuid: string) {
+    const paiement = await this.findOne(pays, utilisateurId, uuid);
+
+    let abonnement: Record<string, unknown> | null = null;
+    if (paiement.abonnement_id) {
+      const trouve = await this.abonnements.findOne({ where: { id: paiement.abonnement_id } });
+      if (trouve) {
+        abonnement = {
+          uuid: trouve.uuid,
+          statut: trouve.statut,
+          date_debut: trouve.date_debut,
+          date_fin: trouve.date_fin,
+        };
+      }
+    }
+
+    let commande: Record<string, unknown> | null = null;
+    if (paiement.commande_id) {
+      const trouvee = await this.commandes.parId(paiement.commande_id, utilisateurId);
+      if (trouvee) {
+        commande = {
+          uuid: trouvee.uuid,
+          statut: trouvee.statut,
+          quantite: trouvee.quantite,
+        };
+      }
+    }
+
+    return {
+      paiement: {
+        uuid: paiement.uuid,
+        statut: paiement.statut,
+        montant: paiement.montant,
+        devise: paiement.devise,
+        prestataire: paiement.prestataire,
+        date_confirmation: paiement.date_confirmation,
+      },
+      abonnement,
+      commande,
+    };
+  }
+
   async mesPaiements(pays: string, utilisateurId: number, pagination: PaginationDto) {
     const page = pagination.page ?? 1;
     const limit = pagination.limit ?? 10;
