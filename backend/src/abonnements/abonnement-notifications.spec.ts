@@ -28,7 +28,10 @@ describe('AbonnementNotificationsService', () => {
     utilisateurs = { findOne: jest.fn().mockResolvedValue(abonne()) };
     mail = { sendPersonalizedEmail: jest.fn().mockResolvedValue(undefined) };
     notifications = { sendNotification: jest.fn().mockResolvedValue({ success: true }) };
-    service = new AbonnementNotificationsService(utilisateurs, mail, notifications);
+    // Le service va chercher NotificationsService dans le conteneur au moment
+    // de s'en servir (résolution paresseuse pour éviter un cycle de modules).
+    const moduleRef = { get: jest.fn().mockReturnValue(notifications) };
+    service = new AbonnementNotificationsService(utilisateurs, mail, moduleRef as any);
   });
 
   it('prévient sur les deux canaux, avec l’échéance en clair', async () => {

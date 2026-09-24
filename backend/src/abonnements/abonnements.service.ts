@@ -349,7 +349,19 @@ export class AbonnementsService {
 
   async activerApresPaiement(
     uuid: string,
-    params: { montant: number; reference: string; paiementId: number; prestataire: string },
+    params: {
+      montant: number;
+      reference: string;
+      paiementId: number;
+      prestataire: string;
+      // Achats in-app : le store est la source de vérité. `dateFin` vient de
+      // `expiration_at_ms` (Apple/Google fixent la période, pas nous), et
+      // `renouvellementAuto` reflète l'abonnement automatique du store. Les
+      // paiements mobile money / carte ne passent rien : le comportement
+      // historique — échéance calculée sur la durée du plan — est intact.
+      dateFin?: Date | null;
+      renouvellementAuto?: boolean;
+    },
   ): Promise<Abonnement> {
     const abonnement = await this.findByUuid(uuid);
 
@@ -361,13 +373,19 @@ export class AbonnementsService {
     }
 
     const debut = new Date();
-    const fin = new Date(debut.getTime() + abonnement.plan.duree_jours * 24 * 60 * 60 * 1000);
+    // Le store prime quand il fournit une échéance valide ; sinon on retombe
+    // sur la durée du plan.
+    const finStore = params.dateFin && !Number.isNaN(params.dateFin.getTime()) ? params.dateFin : null;
+    const fin = finStore ?? new Date(debut.getTime() + abonnement.plan.duree_jours * 24 * 60 * 60 * 1000);
 
     abonnement.statut = StatutAbonnement.ACTIF;
     abonnement.date_debut = debut;
     abonnement.date_fin = fin;
     abonnement.montant_paye = params.montant;
     abonnement.paiement_id = params.paiementId;
+    if (params.renouvellementAuto !== undefined) {
+      abonnement.renouvellement_auto = params.renouvellementAuto;
+    }
     abonnement.metadata = {
       ...(abonnement.metadata ?? {}),
       reference_paiement: params.reference,
@@ -529,6 +547,52 @@ export class AbonnementsService {
       where: { abonnement_id: abonnement.id },
       order: { date_creation: 'DESC' },
     });
+  }
+
+  /**
+   * Le store signale que l'abonnement ne se renouvellera plus (l'utilisateur
+   * a résilié). Ce n'est PAS une expiration : Apple et Google laissent l'accès
+   * ouvert jusqu'à l'échéance déjà payée. On coupe donc seulement le
+   * renouvellement, sans toucher au statut ni à la date de fin.
+   */
+  async desactiverRenouvellementStore(utilisateurId: number, planId: number): Promise<void> {
+    const abonnement = await this.abonnements.findOne({
+      where: { utilisateur_id: utilisateurId, plan_id: planId, statut: StatutAbonnement.ACTIF },
+      order: { date_fin: 'DESC' },
+    });
+    if (!abonnement || !abonnement.renouvellement_auto) return;
+
+    abonnement.renouvellement_auto = false;
+    await this.abonnements.save(abonnement);
+    await this.journaliser(abonnement.id, TypeEvenementAbonnement.ANNULE, {
+      renouvellement_coupe: true,
+      // L'accès reste ouvert jusque-là : on le trace pour lever toute ambiguïté.
+      acces_jusqu_au: abonnement.date_fin,
+      source: 'store',
+    });
+    this.logger.log(`Abonnement ${abonnement.uuid} : renouvellement store désactivé, accès jusqu'au ${abonnement.date_fin?.toISOString()}`);
+  }
+
+  /**
+   * Le store signale que la période payée est écoulée : on coupe l'accès
+   * maintenant, sans attendre le passage horaire du cron. Idempotent — un
+   * abonnement déjà EXPIRE ne rejournalise rien.
+   */
+  async expirerDepuisStore(utilisateurId: number, planId: number): Promise<void> {
+    const abonnement = await this.abonnements.findOne({
+      where: { utilisateur_id: utilisateurId, plan_id: planId, statut: StatutAbonnement.ACTIF },
+      order: { date_fin: 'DESC' },
+    });
+    if (!abonnement) return;
+
+    abonnement.statut = StatutAbonnement.EXPIRE;
+    abonnement.renouvellement_auto = false;
+    await this.abonnements.save(abonnement);
+    await this.journaliser(abonnement.id, TypeEvenementAbonnement.EXPIRE, {
+      date_fin: abonnement.date_fin,
+      source: 'store',
+    });
+    this.logger.log(`Abonnement ${abonnement.uuid} : expiré sur notification du store`);
   }
 
   /** Le journal ne doit jamais faire échouer l'opération qu'il décrit. */
