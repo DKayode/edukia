@@ -8,6 +8,7 @@ import { UpdateParcourDto } from './dto/update-parcour.dto';
 import { ParcourQueryDto } from './dto/parcour-query.dto';
 import { Parcour } from './entities/parcour.entity';
 import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
+import { CurrentCountry } from '../common/decorators/current-country.decorator';
 import { FichiersService } from 'src/fichiers/fichiers.service';
 import { JournaliserConsultation } from '../resource-access/journaliser-consultation.decorator';
 import { RoleGuard } from 'src/auth/guards/role.guard';
@@ -33,8 +34,12 @@ export class ParcoursController {
     return await this.parcoursService.create(createParcoursDto);
   }
 
-  @UseGuards(JwtAuthGuard, RoleGuard)
-  @Roles(RoleType.ADMIN)
+  // Lecture ouverte à tout compte connecté : c'est le module « parcours
+  // inspirants » du mobile. La réserve @Roles(ADMIN) posée en masse par le
+  // commit RBAC (3403b6d) rendait la liste invisible côté application ; les
+  // dix autres contrôleurs ont été rétablis en #288, celui-ci avait été
+  // oublié.
+  @UseGuards(JwtAuthGuard)
   @Get()
   @ApiOperation({ summary: 'Récupérer tous les parcours avec pagination et filtres' })
   @ApiQuery({ name: 'page', required: false, type: Number, description: 'Numéro de page' })
@@ -44,12 +49,11 @@ export class ParcoursController {
   @ApiQuery({ name: 'type_media', required: false, enum: ['image', 'video'], description: 'Filtrer par type de média' })
   @ApiQuery({ name: 'search', required: false, type: String, description: 'Recherche globale' })
   @ApiResponse({ status: 200, description: 'Liste des parcours récupérée avec succès' })
-  async findAll(@Query() query: ParcourQueryDto) {
-    return await this.parcoursService.findAll(query);
+  async findAll(@CurrentCountry() pays: string, @Query() query: ParcourQueryDto) {
+    return await this.parcoursService.findAll(pays, query);
   }
 
-  @UseGuards(JwtAuthGuard, RoleGuard)
-  @Roles(RoleType.ADMIN)
+  @UseGuards(JwtAuthGuard)
   @JournaliserConsultation('parcours')
   @Get(':id')
   @ApiOperation({ summary: 'Récupérer un parcours par son ID' })
@@ -93,10 +97,11 @@ export class ParcoursController {
   @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Limite des résultats' })
   @ApiResponse({ status: 200, description: 'Résultats de la recherche' })
   async search(
+    @CurrentCountry() pays: string,
     @Param('term') term: string,
     @Query('limit') limit?: number,
   ) {
-    return await this.parcoursService.search(term, limit);
+    return await this.parcoursService.search(pays, term, limit);
   }
   @Get(':id/image')
   @ApiOperation({ summary: 'Télécharger l\'image de couverture' })

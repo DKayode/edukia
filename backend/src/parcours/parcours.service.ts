@@ -58,7 +58,7 @@ export class ParcoursService {
    * @param query - Paramètres de requête (pagination, filtres)
    * @returns Liste paginée des parcours avec métadonnées
    */
-  async findAll(query: ParcourQueryDto): Promise<{
+  async findAll(pays: string, query: ParcourQueryDto): Promise<{
     data: Parcour[];
     meta: {
       page: number;
@@ -70,11 +70,16 @@ export class ParcoursService {
     const { page, limit, ...filters } = query;
     const skip = (page - 1) * limit;
 
-    // Construction de la clause WHERE
-    const where: FindOptionsWhere<Parcour> = {};
+    // Construction de la clause WHERE.
+    //
+    // Le pays cadre TOUT : une seule base porte les parcours de tous les
+    // pays (colonne `pays`), et sans ce filtre un compte sénégalais recevait
+    // les parcours béninois. Inoffensif tant que tout est au Bénin, faux dès
+    // qu'un second pays publie.
+    const where: FindOptionsWhere<Parcour> = { pays };
 
     if (filters.titre) {
-      where.titre = Raw(alias => `unaccent(${alias}) ILIKE unaccent('%${filters.titre}%')`);
+      where.titre = Raw((alias) => `unaccent(${alias}) ILIKE unaccent(:titre)`, { titre: `%${filters.titre}%` });
     }
 
     // CORRECTION ICI : Filtre par category_id
@@ -95,7 +100,7 @@ export class ParcoursService {
 
     // Recherche globale sur plusieurs champs
     if (filters.search) {
-      where.titre = Raw(alias => `unaccent(${alias}) ILIKE unaccent('%${filters.search}%')`);
+      where.titre = Raw((alias) => `unaccent(${alias}) ILIKE unaccent(:search)`, { search: `%${filters.search}%` });
       // Pour rechercher sur plusieurs champs :
       // where = [
       //   { titre: Raw(alias => `unaccent(${alias}) ILIKE unaccent('%${filters.search}%')`) },
@@ -221,12 +226,14 @@ export class ParcoursService {
    * @param limit - Nombre maximum de résultats
    * @returns Liste des parcours correspondants
    */
-  async search(search: string, limit: number = 10): Promise<Parcour[]> {
+  async search(pays: string, search: string, limit: number = 10): Promise<Parcour[]> {
+    // `pays` répété dans chaque branche : un OR sans lui laisserait remonter
+    // les parcours des autres pays dès qu'un titre correspond.
+    const motif = `%${search}%`;
     return await this.parcoursRepository.find({
       where: [
-        { titre: Raw(alias => `unaccent(${alias}) ILIKE unaccent('%${search}%')`) },
-        { description: Raw(alias => `unaccent(${alias}) ILIKE unaccent('%${search}%')`) },
-        // { category: Raw(alias => `unaccent(${alias}) ILIKE unaccent('%${search}%')`) }, // Category is a relation, cannot use Raw directly on it easily without QB or joining. Assuming simple string search or ignoring.
+        { pays, titre: Raw((alias) => `unaccent(${alias}) ILIKE unaccent(:motif)`, { motif }) },
+        { pays, description: Raw((alias) => `unaccent(${alias}) ILIKE unaccent(:motif)`, { motif }) },
       ],
       take: limit,
     });
