@@ -14,6 +14,7 @@ import { ModuleRef } from '@nestjs/core';
 import { CodeValidationService } from '../codes/code-validation.service';
 import { ParrainageService } from './parrainage.service';
 import { PlansService } from './plans.service';
+import { AbonnementNotificationsService } from './abonnement-notifications.service';
 
 @Injectable()
 export class AbonnementsService {
@@ -542,6 +543,43 @@ export class AbonnementsService {
       );
     } catch (err) {
       this.logger.warn(`Journalisation ${type} échouée pour l'abonnement ${abonnementId}: ${err?.message ?? err}`);
+    }
+
+    if (type === TypeEvenementAbonnement.ACTIVE) {
+      await this.annoncerActivation(abonnementId);
+    }
+  }
+
+  /**
+   * Point unique d'où part l'annonce à l'abonné.
+   *
+   * Les quatre chemins d'activation — souscription offerte, activation
+   * manuelle, paiement encaissé, achat in-app — journalisent tous un
+   * `ACTIVE`. S'accrocher ici plutôt qu'à chacun d'eux garantit qu'aucun
+   * n'est oublié, aujourd'hui comme demain.
+   *
+   * Deux garde-fous :
+   *
+   *  - on relit le statut. `reactiver()` journalise aussi un `ACTIVE`, mais
+   *    repose l'abonnement en EXPIRE quand sa période est déjà passée :
+   *    annoncer un accès ouvert serait alors faux.
+   *  - rien ne remonte. Un abonnement payé reste payé même si le courriel
+   *    et la notification échouent tous les deux.
+   */
+  private async annoncerActivation(abonnementId: number): Promise<void> {
+    try {
+      const abonnement = await this.abonnements.findOne({
+        where: { id: abonnementId },
+        relations: ['plan'],
+      });
+      if (!abonnement) return;
+      if (abonnement.statut !== StatutAbonnement.ACTIF) return;
+      if (abonnement.date_fin && abonnement.date_fin.getTime() <= Date.now()) return;
+
+      const annonces = this.moduleRef.get(AbonnementNotificationsService, { strict: false });
+      await annonces.annoncerActivation(abonnement);
+    } catch (err) {
+      this.logger.warn(`Annonce d'activation impossible pour l'abonnement ${abonnementId}: ${err?.message ?? err}`);
     }
   }
 

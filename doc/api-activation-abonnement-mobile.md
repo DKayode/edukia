@@ -1,7 +1,11 @@
-# Vérifier un paiement à la demande — guide d'intégration mobile
+# Activation d'abonnement — guide d'intégration mobile
 
-Ce guide décrit une seule route nouvelle, `POST /paiements/:uuid/verifier`, et
-la façon de l'appeler au retour de la page de paiement.
+Ce guide couvre deux changements qui vont ensemble :
+
+1. `POST /paiements/:uuid/verifier` — l'application force la vérification du
+   paiement au lieu d'attendre.
+2. **L'abonné est prévenu** dès que son abonnement s'ouvre, par notification
+   push et par courriel. Le mobile a une donnée à traiter.
 
 Elle répond à un problème mesuré en production : entre le moment où
 l'utilisateur paie et celui où son abonnement devient actif, il s'écoulait
@@ -207,7 +211,71 @@ l'abonnement qui ouvre l'accès aux ressources.
 
 ---
 
-## 6. Ce qui ne change pas
+## 6. La notification d'activation
+
+Dès qu'un abonnement devient actif, le backend prévient l'abonné sur **deux
+canaux**, quel que soit le chemin emprunté — paiement encaissé, achat in-app,
+code d'abonnement offert, ou activation par un administrateur.
+
+Les deux canaux ne font pas double emploi. En production, **un compte sur deux
+n'a pas de jeton FCM** (18 299 sur 34 475). Sans le courriel, la moitié des
+abonnés n'apprendraient rien.
+
+### La notification push
+
+```json
+{
+  "title": "Votre abonnement est actif",
+  "body":  "Abonnement mensuel — accès complet jusqu'au 24 octobre 2026.",
+  "data": {
+    "categorie":       "ABONNEMENT_ACTIVE",
+    "abonnement_uuid": "c69ef15b-89a2-49cb-ade5-225830ef5507",
+    "date_fin":        "2026-10-24T07:50:15.489Z"
+  }
+}
+```
+
+**Ce que l'application doit faire du champ `data` :**
+
+| Champ | Usage attendu |
+|---|---|
+| `categorie` | Aiguiller. `ABONNEMENT_ACTIVE` ouvre l'écran de l'abonnement, pas la liste des notifications |
+| `abonnement_uuid` | L'abonnement à afficher |
+| `date_fin` | ISO 8601. Vide (`""`) si l'abonnement n'a pas d'échéance |
+
+Traitez `categorie` comme une valeur ouverte : d'autres viendront. Une valeur
+inconnue doit ouvrir la liste des notifications, jamais faire planter
+l'aiguillage.
+
+La notification est aussi **enregistrée en base** : elle apparaît dans
+`GET /notifications` même si le push s'est perdu, et compte dans le badge de
+`GET /notifications/unread-count`.
+
+### Le jeton FCM doit être à jour
+
+Sans jeton enregistré sur le compte, aucun push n'est tenté — le courriel
+reste le seul canal. Vérifiez que l'application envoie bien le jeton à la
+connexion **et à chaque rotation**, sans quoi l'abonné paiera et ne verra
+rien arriver.
+
+### Le courriel
+
+Objet : « Votre abonnement Edukia est actif ». Il rappelle le plan et
+l'échéance. Rien à faire côté mobile — c'est une trace pour l'abonné.
+
+### Ce qui n'est pas annoncé
+
+Une réactivation qui repose l'abonnement en `EXPIRE`, faute de période
+restante, **ne déclenche rien** : annoncer un accès ouvert serait faux.
+
+Aucun échec d'annonce ne remet l'abonnement en cause. Un abonnement payé
+reste payé même si la notification et le courriel échouent tous les deux.
+Ne conditionnez donc **jamais** l'ouverture de l'accès à la réception d'un
+push : la vérification du paragraphe 2 reste la source de vérité.
+
+---
+
+## 7. Ce qui ne change pas
 
 | | |
 |---|---|
@@ -222,7 +290,7 @@ la confusion la plus probable. Pour forcer une vérification, il faut le
 
 ---
 
-## 7. Rappels
+## 8. Rappels
 
 - La route exige un jeton. Le paiement est filtré sur le compte **et** le
   pays : un `uuid` d'un autre pays renvoie 404.
