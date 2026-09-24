@@ -79,6 +79,18 @@ export class CommandesCodesService {
     return commande;
   }
 
+  /**
+   * Lecture par clé interne, pour les appelants qui tiennent déjà un
+   * `commande_id` — le paiement, notamment. Renvoie `null` plutôt que de
+   * lever : l'absence est ici une information, pas une erreur.
+   */
+  async parId(id: number, utilisateurId?: number): Promise<CommandeCode | null> {
+    const commande = await this.commandes.findOne({ where: { id } });
+    if (!commande) return null;
+    if (utilisateurId !== undefined && commande.utilisateur_id !== utilisateurId) return null;
+    return commande;
+  }
+
   /** Les commandes de l'acheteur, la plus récente d'abord. */
   async mesCommandes(utilisateurId: number, pays: string) {
     const commandes = await this.commandes.find({

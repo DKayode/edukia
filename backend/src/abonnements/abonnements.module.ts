@@ -18,6 +18,8 @@ import { PlansService } from './plans.service';
 import { QuotaService } from './quota.service';
 import { ConfigurationAbonnement } from './entities/configuration-abonnement.entity';
 import { VerrouService } from './verrou.service';
+import { AbonnementNotificationsService } from './abonnement-notifications.service';
+import { MailModule } from '../mail/mail.module';
 
 /**
  * Socle des abonnements.
@@ -27,9 +29,9 @@ import { VerrouService } from './verrou.service';
  * nationaux en #245, stats IA en #249) doivent connaître.
  */
 @Module({
-  imports: [forwardRef(() => UtilisateursModule), TypeOrmModule.forFeature([ConfigurationAbonnement, PlanAbonnement, Abonnement, AbonnementEvenement, QuotaConsommation, ConfigurationQuota, Utilisateur])],
+  imports: [forwardRef(() => UtilisateursModule), MailModule, TypeOrmModule.forFeature([ConfigurationAbonnement, PlanAbonnement, Abonnement, AbonnementEvenement, QuotaConsommation, ConfigurationQuota, Utilisateur])],
   controllers: [AbonnementsController, AbonnementsAdminController, EntitlementInternalController],
-  providers: [VerrouService, AbonnementsService, PlansService, EntitlementService, QuotaService, ParrainageService, AbonnementRequisGuard],
+  providers: [VerrouService, AbonnementNotificationsService, AbonnementsService, PlansService, EntitlementService, QuotaService, ParrainageService, AbonnementRequisGuard],
   exports: [VerrouService, EntitlementService, QuotaService, ParrainageService, PlansService, AbonnementRequisGuard, AbonnementsService],
 })
 export class AbonnementsModule {}
