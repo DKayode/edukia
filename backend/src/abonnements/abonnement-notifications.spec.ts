@@ -55,6 +55,27 @@ describe('AbonnementNotificationsService', () => {
     expect(corps).toContain('24 octobre 2026');
   });
 
+  it('pour un abonnement OFFERT, décrit l’accès et sa date, pas le palier du plan', async () => {
+    // Code imposant 97 jours sur le plan mensuel : nommer « mensuel » serait
+    // trompeur. On annonce l'accès et l'échéance réelle.
+    await service.annoncerActivation(abonnement({
+      offert: true,
+      plan: { libelle: 'Abonnement mensuel', code: 'MENSUEL' },
+      date_fin: new Date('2026-12-31T00:00:00Z'),
+    }));
+
+    const notif = notifications.sendNotification.mock.calls[0][0];
+    expect(notif.title).toBe('Votre accès Edukia est activé');
+    expect(notif.body).toContain('Accès complet Edukia');
+    expect(notif.body).toContain('31 décembre 2026');
+    expect(notif.body).not.toContain('mensuel');
+
+    const [, sujet, corps] = mail.sendPersonalizedEmail.mock.calls[0];
+    expect(sujet).toBe('Votre accès Edukia est activé');
+    expect(corps).toContain('Accès complet Edukia');
+    expect(corps).not.toContain('mensuel');
+  });
+
   it('se contente du courriel quand aucun appareil n’est enregistré', async () => {
     utilisateurs.findOne.mockResolvedValue(abonne({ fcm_token: null }));
 
