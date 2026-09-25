@@ -46,13 +46,23 @@ export class AbonnementNotificationsService {
     }
 
     const echeance = this.formaterEcheance(abonnement.date_fin);
-    const libellePlan = abonnement.plan?.libelle ?? abonnement.plan?.code ?? 'Abonnement Edukia';
+
+    // Un abonnement OFFERT par code peut porter une durée imposée par le code
+    // (ex. 97 jours) sans rapport avec le palier du plan (« mensuel » = 30 j).
+    // Nommer le palier serait alors trompeur : « Abonnement mensuel » pour un
+    // accès de 97 jours. Dans ce cas on décrit l'ACCÈS et sa date, pas le
+    // palier. Pour un abonnement payé, dont la durée suit le plan choisi, on
+    // garde le libellé du plan.
+    const offert = !!abonnement.offert;
+    const libellePlan = offert
+      ? 'Accès complet Edukia'
+      : (abonnement.plan?.libelle ?? abonnement.plan?.code ?? 'Abonnement Edukia');
 
     // Les deux canaux sont indépendants : l'échec de l'un ne prive pas
     // l'abonné de l'autre.
     await Promise.allSettled([
-      this.envoyerNotification(abonne, abonnement, libellePlan, echeance),
-      this.envoyerCourriel(abonne, libellePlan, echeance),
+      this.envoyerNotification(abonne, abonnement, libellePlan, echeance, offert),
+      this.envoyerCourriel(abonne, libellePlan, echeance, offert),
     ]);
   }
 
@@ -61,6 +71,7 @@ export class AbonnementNotificationsService {
     abonnement: Abonnement,
     libellePlan: string,
     echeance: string | null,
+    offert: boolean,
   ): Promise<void> {
     if (!abonne.fcm_token) {
       // Pas d'appareil enregistré : le courriel reste le seul canal. On ne
@@ -71,10 +82,10 @@ export class AbonnementNotificationsService {
 
     try {
       await this.notifications.sendNotification({
-        title: 'Votre abonnement est actif',
+        title: offert ? 'Votre accès Edukia est activé' : 'Votre abonnement est actif',
         body: echeance
-          ? `${libellePlan} — accès complet jusqu'au ${echeance}.`
-          : `${libellePlan} — votre accès complet est ouvert.`,
+          ? `${libellePlan} jusqu'au ${echeance}.`
+          : `${libellePlan} : votre accès est ouvert.`,
         utilisateurIds: [abonne.id],
         type: NotificationType.SYSTEM,
         priority: NotificationPriority.HIGH,
@@ -95,6 +106,7 @@ export class AbonnementNotificationsService {
     abonne: Utilisateur,
     libellePlan: string,
     echeance: string | null,
+    offert: boolean,
   ): Promise<void> {
     if (!abonne.email) {
       this.logger.warn(`Abonné ${abonne.id} : aucune adresse de courriel.`);
@@ -104,12 +116,12 @@ export class AbonnementNotificationsService {
     try {
       await this.mail.sendPersonalizedEmail(
         abonne.email,
-        'Votre abonnement Edukia est actif',
+        offert ? 'Votre accès Edukia est activé' : 'Votre abonnement Edukia est actif',
         `<p>Bonjour ${abonne.prenom ?? ''},</p>
-         <p>Votre abonnement <strong>${libellePlan}</strong> est actif.</p>
+         <p><strong>${libellePlan}</strong> est activé.</p>
          ${echeance ? `<p>Il vous ouvre l'accès complet aux épreuves, aux examens nationaux et aux concours jusqu'au <strong>${echeance}</strong>.</p>` : `<p>Il vous ouvre l'accès complet aux épreuves, aux examens nationaux et aux concours.</p>`}
          <p>Vous n'avez rien à faire : l'accès est déjà ouvert dans l'application.</p>
-         <p>Vous retrouverez le détail de votre abonnement et son échéance depuis votre espace personnel.</p>`,
+         <p>Vous retrouverez le détail de votre accès et son échéance depuis votre espace personnel.</p>`,
       );
     } catch (err) {
       this.logger.warn(`Abonné ${abonne.id} : courriel d'activation non envoyé — ${err?.message ?? err}`);
