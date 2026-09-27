@@ -91,16 +91,16 @@ describe('Vérification email (HTTP)', () => {
 
   afterAll(() => app.close());
 
-  // L'app mobile teste `statusCode == 200` : un 201 faisait passer un succès pour un échec.
-  it('verify-email répond 200', async () => {
-    await request(app.getHttpServer()).post('/utilisateurs/verify-email').send({ email: 'a@b.co' }).expect(200);
+  // Contrat voulu : 201 (défaut NestJS sur un POST). Le mobile teste la plage 2xx.
+  it('verify-email répond 201', async () => {
+    await request(app.getHttpServer()).post('/utilisateurs/verify-email').send({ email: 'a@b.co' }).expect(201);
   });
 
-  it('validate-email répond 200 avec verifier: true', async () => {
+  it('validate-email répond 201 avec verifier: true', async () => {
     const res = await request(app.getHttpServer())
       .post('/utilisateurs/validate-email')
       .send({ email: 'a@b.co', code: '482913' })
-      .expect(200);
+      .expect(201);
     expect(res.body).toEqual({ message: 'Email vérifié avec succès', verifier: true });
   });
 });

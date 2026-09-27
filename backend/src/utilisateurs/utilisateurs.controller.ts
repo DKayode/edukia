@@ -1,5 +1,5 @@
 import { FilterUtilisateurDto } from './dto/filter-utilisateur.dto';
-import { Controller, Get, Post, Body, Put, Param, Delete, UseGuards, Request, Query, Patch, UseInterceptors, UploadedFile, Res, HttpStatus, HttpCode } from '@nestjs/common';
+import { Controller, Get, Post, Body, Put, Param, Delete, UseGuards, Request, Query, Patch, UseInterceptors, UploadedFile, Res, HttpStatus } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiOperation, ApiResponse, ApiQuery, ApiConsumes, ApiBody, ApiBearerAuth } from '@nestjs/swagger';
 import { UtilisateursService } from './utilisateurs.service';
@@ -147,17 +147,15 @@ export class UtilisateursController {
   }
 
   @Post('verify-email')
-  @HttpCode(200)
   @ApiOperation({ summary: 'Demander la vérification d\'email (envoie un code)' })
-  @ApiResponse({ status: 200, description: 'Code de vérification envoyé avec succès' })
+  @ApiResponse({ status: 201, description: 'Code de vérification envoyé avec succès' })
   async verifyEmail(@Body() verifyEmailDto: VerifyEmailDto) {
     return this.utilisateursService.verifyEmail(verifyEmailDto.email);
   }
 
   @Post('validate-email')
-  @HttpCode(200)
   @ApiOperation({ summary: 'Valider le code pour confirmer l\'adresse email' })
-  @ApiResponse({ status: 200, description: 'Email validé avec succès' })
+  @ApiResponse({ status: 201, description: 'Email validé avec succès' })
   async validateEmail(@Body() validateEmailDto: ValidateEmailDto) {
     return this.utilisateursService.validateEmail(validateEmailDto);
   }
