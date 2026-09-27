@@ -1,5 +1,13 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, INestApplication, ValidationPipe } from '@nestjs/common';
+import { Test } from '@nestjs/testing';
+import * as request from 'supertest';
 import { UtilisateursService } from './utilisateurs.service';
+import { UtilisateursController } from './utilisateurs.controller';
+import { ProfilCompletionService } from './profil-completion.service';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RoleGuard } from '../auth/guards/role.guard';
+import { OwnerOrAdminGuard } from '../auth/guards/owner-or-admin.guard';
+import { PermissionGuard } from '../auth/guards/permission.guard';
 
 describe('Vérification email', () => {
   let user: any;
@@ -52,5 +60,47 @@ describe('Vérification email', () => {
   it('refuse un code expiré', async () => {
     Object.assign(user, { digit_code: '482913', date_expiration_code: new Date(Date.now() - 1000) });
     await expect(service.validateEmail({ email: 'a@b.co', code: '482913' })).rejects.toThrow('Le code de validation a expiré');
+  });
+});
+
+describe('Vérification email (HTTP)', () => {
+  let app: INestApplication;
+  const service = {
+    verifyEmail: jest.fn().mockResolvedValue({ message: 'Code de vérification envoyé avec succès' }),
+    validateEmail: jest.fn().mockResolvedValue({ message: 'Email vérifié avec succès', verifier: true }),
+  };
+
+  beforeAll(async () => {
+    const libre = { canActivate: () => true };
+    const moduleRef = await Test.createTestingModule({
+      controllers: [UtilisateursController],
+      providers: [
+        { provide: UtilisateursService, useValue: service },
+        { provide: ProfilCompletionService, useValue: {} },
+      ],
+    })
+      .overrideGuard(JwtAuthGuard).useValue(libre)
+      .overrideGuard(RoleGuard).useValue(libre)
+      .overrideGuard(OwnerOrAdminGuard).useValue(libre)
+      .overrideGuard(PermissionGuard).useValue(libre)
+      .compile();
+    app = moduleRef.createNestApplication();
+    app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }));
+    await app.init();
+  });
+
+  afterAll(() => app.close());
+
+  // L'app mobile teste `statusCode == 200` : un 201 faisait passer un succès pour un échec.
+  it('verify-email répond 200', async () => {
+    await request(app.getHttpServer()).post('/utilisateurs/verify-email').send({ email: 'a@b.co' }).expect(200);
+  });
+
+  it('validate-email répond 200 avec verifier: true', async () => {
+    const res = await request(app.getHttpServer())
+      .post('/utilisateurs/validate-email')
+      .send({ email: 'a@b.co', code: '482913' })
+      .expect(200);
+    expect(res.body).toEqual({ message: 'Email vérifié avec succès', verifier: true });
   });
 });
