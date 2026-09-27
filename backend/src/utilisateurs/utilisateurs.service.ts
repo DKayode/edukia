@@ -684,16 +684,21 @@ export class UtilisateursService {
       throw new NotFoundException('Utilisateur non trouvé');
     }
 
-    // Generate a 6-digit code
-    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    // Un renvoi reprend le code encore valide : régénérer rendrait caduc le
+    // code d'un email déjà reçu (double appel de l'app, renvoi après timeout),
+    // et l'usager saisirait un code juste mais refusé.
+    const codeValide = Boolean(
+      user.digit_code && user.date_expiration_code && new Date() <= new Date(user.date_expiration_code),
+    );
+    const code = codeValide ? user.digit_code : Math.floor(100000 + Math.random() * 900000).toString();
 
-    // Set expiration to 1 day from now
-    const expiration = new Date();
-    expiration.setDate(expiration.getDate() + 1);
-
-    user.digit_code = code;
-    user.date_expiration_code = expiration;
-    await this.utilisateursRepository.save(user);
+    if (!codeValide) {
+      const expiration = new Date();
+      expiration.setDate(expiration.getDate() + 1);
+      user.digit_code = code;
+      user.date_expiration_code = expiration;
+      await this.utilisateursRepository.save(user);
+    }
 
     await this.mailService.sendVerifyEmailCode(email, code);
 
@@ -702,7 +707,9 @@ export class UtilisateursService {
   }
 
   async validateEmail(validateEmailDto: ValidateEmailDto) {
-    const { email, code } = validateEmailDto;
+    const { email } = validateEmailDto;
+    // Un code collé ou auto-rempli depuis l'email traîne souvent des espaces.
+    const code = validateEmailDto.code.replace(/\s/g, '');
 
     this.logger.log(`Validation de l\'email pour: ${email}`);
     const user = await this.utilisateursRepository.findOne({
@@ -713,15 +720,13 @@ export class UtilisateursService {
       throw new NotFoundException('Utilisateur non trouvé');
     }
 
-    if (user.digit_code !== code) {
-      user.verifier = false;
-      await this.utilisateursRepository.save(user);
+    // Un code faux ne doit pas « dé-vérifier » un compte déjà vérifié.
+    if (!user.digit_code || user.digit_code !== code) {
+      this.logger.warn(`Code de validation incorrect pour: ${email}`);
       throw new BadRequestException('Code de validation incorrect');
     }
 
-    if (new Date() > user.date_expiration_code) {
-      user.verifier = false;
-      await this.utilisateursRepository.save(user);
+    if (!user.date_expiration_code || new Date() > new Date(user.date_expiration_code)) {
       throw new BadRequestException('Le code de validation a expiré');
     }
 
