@@ -93,6 +93,11 @@ export class MailService {
                     user,
                     pass,
                 },
+                // Sous le délai de 30 s de l'app mobile : un SMTP lent doit échouer
+                // proprement plutôt que faire expirer la requête côté client.
+                connectionTimeout: 10000,
+                greetingTimeout: 10000,
+                socketTimeout: 15000,
                 pool: true, // Reuse connections
                 maxConnections: 3, // Smaller pool for safety
                 maxMessages: 100, // Max messages per connection before reconnecting
