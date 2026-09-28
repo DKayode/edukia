@@ -20,6 +20,7 @@ import { MethodePaiement, ModePaiement, PrestatairePaiement, StatutPaiement } fr
 import { PlanAbonnement } from '../abonnements/entities/plan-abonnement.entity';
 import { CommandesCodesService } from '../codes/commandes-codes.service';
 import { StatutCommande } from '../codes/entities/commande-code.entity';
+import { convertirMontant } from './shared/conversion-devise';
 
 const STATUTS_FINAUX = new Set([
   StatutPaiement.REUSSI,
@@ -112,8 +113,9 @@ export class PaiementsService {
     }
 
     const config = await this.configurationActive(pays, dto.prestataire);
-    const montant = Number(abonnement.plan.prix) - Number((abonnement as any).montant_remise ?? 0);
-    if (montant <= 0) throw new ConflictException("Cet abonnement ne nécessite pas de paiement");
+    const montantPlan = Number(abonnement.plan.prix) - Number((abonnement as any).montant_remise ?? 0);
+    if (montantPlan <= 0) throw new ConflictException("Cet abonnement ne nécessite pas de paiement");
+    const montant = convertirMontant(montantPlan, abonnement.plan.devise, config.devise);
     this.verifierPlafonds(config, montant);
 
     const utilisateur = await this.utilisateurs.findOne({ where: { id: utilisateurId } });
@@ -464,8 +466,18 @@ export class PaiementsService {
   async recevoirWebhook(prestataire: PrestatairePaiement, rawBody: Buffer, headers: Record<string, any>, payload: unknown) {
     const provider = this.providers.get(prestataire);
     const configs = await this.configurations.find({ where: { prestataire, est_actif: true } });
+    // Des identifiants indéchiffrables (clé de chiffrement changée) doivent
+    // donner un refus journalisé, pas un 500 avant toute trace du webhook.
+    let credentialsIllisibles = 0;
     const signatureValide = configs.length > 0
-      ? configs.some((config) => provider.verifierSignature(rawBody, headers, this.credentials.decrypt(config.credentials_chiffres)))
+      ? configs.some((config) => {
+          try {
+            return provider.verifierSignature(rawBody, headers, this.credentials.decrypt(config.credentials_chiffres));
+          } catch {
+            credentialsIllisibles++;
+            return false;
+          }
+        })
       : provider.verifierSignature(rawBody, headers);
     let evenementId = `${prestataire}-${Date.now()}`;
     try {
@@ -486,7 +498,13 @@ export class PaiementsService {
     }
 
     if (!signatureValide) {
-      await this.webhooks.update(webhook.id, { erreur_traitement: 'SIGNATURE_INVALIDE' });
+      const motif = credentialsIllisibles ? 'CREDENTIALS_INDECHIFFRABLES' : 'SIGNATURE_INVALIDE';
+      this.logger.warn(
+        `Webhook ${prestataire} refusé (${motif}) : configs actives=${configs.length}, ` +
+          `indéchiffrables=${credentialsIllisibles}, en-têtes signature=[${Object.keys(headers).filter((h) => /signature|secret/i.test(h)).join(',')}], ` +
+          `corps brut=${rawBody.length} o, content-type=${headers['content-type'] ?? '-'}`,
+      );
+      await this.webhooks.update(webhook.id, { erreur_traitement: motif });
       throw new UnauthorizedException('Signature webhook invalide');
     }
 
@@ -564,18 +582,23 @@ export class PaiementsService {
     let traites = 0;
     for (const paiement of paiements) {
       try {
-        if (paiement.date_expiration && paiement.date_expiration < new Date()) {
+        const expire = !!paiement.date_expiration && paiement.date_expiration < new Date();
+        // Interroger le prestataire AVANT d'expirer : un client qui a payé juste
+        // avant l'échéance, sans webhook exploitable, perdait son paiement.
+        // Une erreur du prestataire laisse la ligne en attente pour le passage suivant.
+        if (paiement.reference_prestataire) {
+          const config = await this.configurationPourPaiement(paiement);
+          const provider = this.providers.get(paiement.prestataire);
+          const statut = await provider.verifierStatut(paiement.reference_prestataire, this.credentials.decrypt(config?.credentials_chiffres), paiement.mode);
+          if (statut.statut !== StatutPaiement.EN_ATTENTE && statut.statut !== StatutPaiement.INITIE) {
+            await this.appliquerStatutVerifie(paiement, statut.statut, statut.montant, { reconciliation: true });
+            traites++;
+            continue;
+          }
+        }
+        if (expire) {
           paiement.statut = StatutPaiement.EXPIRE;
           await this.paiements.save(paiement);
-          traites++;
-          continue;
-        }
-        if (!paiement.reference_prestataire) continue;
-        const config = await this.configurationPourPaiement(paiement);
-        const provider = this.providers.get(paiement.prestataire);
-        const statut = await provider.verifierStatut(paiement.reference_prestataire, this.credentials.decrypt(config?.credentials_chiffres), paiement.mode);
-        if (statut.statut !== StatutPaiement.EN_ATTENTE) {
-          await this.appliquerStatutVerifie(paiement, statut.statut, statut.montant, { reconciliation: true });
           traites++;
         }
       } catch (err) {
@@ -769,8 +792,9 @@ export class PaiementsService {
     }
 
     const config = await this.configurationActive(pays, dto.prestataire);
-    const montant = Number(commande.montant_total);
-    if (montant <= 0) throw new ConflictException("Cette commande ne nécessite pas de paiement");
+    const montantCommande = Number(commande.montant_total);
+    if (montantCommande <= 0) throw new ConflictException("Cette commande ne nécessite pas de paiement");
+    const montant = convertirMontant(montantCommande, commande.devise, config.devise);
     this.verifierPlafonds(config, montant);
 
     const utilisateur = await this.utilisateurs.findOne({ where: { id: utilisateurId } });
