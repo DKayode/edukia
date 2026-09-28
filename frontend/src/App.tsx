@@ -61,6 +61,7 @@ import CommissionParrainage from "./pages/CommissionParrainage";
 import ClassementCommissions from "./pages/ClassementCommissions";
 import Codes from "./pages/Codes";
 import ConfigurationPaiements from "./pages/ConfigurationPaiements";
+import SuiviPaiements from "./pages/SuiviPaiements";
 import EnquetesCampagnes from "./pages/EnquetesCampagnes";
 import EnquetesBuilder from "./pages/EnquetesBuilder";
 import EnquetesResultats from "./pages/EnquetesResultats";
@@ -147,6 +148,7 @@ const App = () => (
                       <Route path="/admin/abonnements/classement-commissions" element={<ClassementCommissions />} />
                       <Route path="/admin/codes" element={<Codes />} />
                       <Route path="/admin/abonnements/paiements" element={<ConfigurationPaiements />} />
+                      <Route path="/admin/abonnements/suivi-paiements" element={<SuiviPaiements />} />
                       <Route path="/enquetes" element={<EnquetesCampagnes />} />
                       <Route path="/enquetes/nouveau" element={<EnquetesBuilder />} />
                       <Route path="/enquetes/:uuid/edition" element={<EnquetesBuilder />} />

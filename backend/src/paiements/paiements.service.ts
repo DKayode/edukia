@@ -13,6 +13,7 @@ import { ConfigurationPaiement } from './entities/configuration-paiement.entity'
 import { PaiementWebhook } from './entities/paiement-webhook.entity';
 import { Paiement } from './entities/paiement.entity';
 import { FilterPaiementsDto } from './dto/filter-paiements.dto';
+import { SuiviPaiementsDto } from './dto/suivi-paiements.dto';
 import { InitierPaiementDto } from './dto/initier-paiement.dto';
 import { PaiementCredentialsService } from './paiement-credentials.service';
 import { PaiementProviderRegistry } from './providers/paiement-provider.registry';
@@ -321,6 +322,100 @@ export class PaiementsService {
     if (filtre.search) qb.andWhere('(p.reference ILIKE :q OR p.reference_prestataire ILIKE :q)', { q: `%${filtre.search}%` });
     const [data, total] = await qb.orderBy('p.date_creation', 'DESC').skip((page - 1) * limit).take(limit).getManyAndCount();
     return { data, total, page, limit, totalPages: Math.ceil(total / limit) };
+  }
+
+  /**
+   * Suivi par utilisateur : qui a tenté de payer, qui a abouti.
+   * Un utilisateur qui échoue puis réussit sur la période est ABOUTI —
+   * NON_ABOUTI ne liste que ceux qu'aucune tentative n'a menés au bout.
+   */
+  async adminSuivi(pays: string, filtre: SuiviPaiementsDto) {
+    const page = filtre.page ?? 1;
+    const limit = Math.min(filtre.limit ?? 20, 100);
+    const periode = [pays, filtre.depuis ?? null, filtre.jusqua ?? null];
+    const tentatives = `
+      SELECT p.utilisateur_id,
+             count(*)::int AS tentatives,
+             count(*) FILTER (WHERE p.statut IN ('${StatutPaiement.REUSSI}', '${StatutPaiement.REMBOURSE}'))::int AS reussies,
+             max(p.date_creation) AS derniere_tentative,
+             (array_agg(p.statut ORDER BY p.date_creation DESC))[1] AS dernier_statut
+        FROM paiements p
+       WHERE p.pays = $1
+         AND ($2::timestamptz IS NULL OR p.date_creation >= $2::timestamptz)
+         AND ($3::timestamptz IS NULL OR p.date_creation < $3::timestamptz)
+       GROUP BY p.utilisateur_id`;
+
+    const [resume] = await this.paiements.query(
+      `WITH t AS (${tentatives})
+       SELECT count(*)::int AS utilisateurs,
+              count(*) FILTER (WHERE reussies > 0)::int AS aboutis,
+              count(*) FILTER (WHERE reussies = 0)::int AS non_aboutis,
+              coalesce(sum(tentatives), 0)::int AS tentatives
+         FROM t`,
+      periode,
+    );
+    const encaisse = await this.paiements.query(
+      `SELECT devise, sum(montant)::float AS montant
+         FROM paiements
+        WHERE pays = $1 AND statut = '${StatutPaiement.REUSSI}'
+          AND ($2::timestamptz IS NULL OR date_creation >= $2::timestamptz)
+          AND ($3::timestamptz IS NULL OR date_creation < $3::timestamptz)
+        GROUP BY devise ORDER BY devise`,
+      periode,
+    );
+
+    const lignes: any[] = await this.paiements.query(
+      `WITH t AS (${tentatives})
+       SELECT t.*, u.uuid, u.nom, u.prenom, u.email, u.telephone, count(*) OVER ()::int AS total
+         FROM t JOIN utilisateurs u ON u.id = t.utilisateur_id
+        WHERE ($4::text IS NULL OR (t.reussies > 0) = ($4 = 'ABOUTI'))
+          AND ($5::text IS NULL OR u.email ILIKE $5 OR u.nom ILIKE $5 OR u.prenom ILIKE $5 OR u.telephone ILIKE $5)
+        ORDER BY t.derniere_tentative DESC
+        LIMIT $6 OFFSET $7`,
+      [...periode, filtre.issue ?? null, filtre.search ? `%${filtre.search}%` : null, limit, (page - 1) * limit],
+    );
+
+    const ids = lignes.map((l) => l.utilisateur_id);
+    const details = ids.length
+      ? await this.paiements.createQueryBuilder('p')
+          .where('p.pays = :pays AND p.utilisateur_id IN (:...ids)', { pays, ids })
+          .andWhere(filtre.depuis ? 'p.date_creation >= :depuis' : '1=1', { depuis: filtre.depuis })
+          .andWhere(filtre.jusqua ? 'p.date_creation < :jusqua' : '1=1', { jusqua: filtre.jusqua })
+          .select(['p.uuid', 'p.utilisateur_id', 'p.reference', 'p.prestataire', 'p.statut', 'p.montant', 'p.devise',
+            'p.abonnement_id', 'p.commande_id', 'p.date_creation', 'p.date_confirmation'])
+          .orderBy('p.date_creation', 'DESC')
+          .getMany()
+      : [];
+
+    const total = lignes[0]?.total ?? 0;
+    return {
+      resume: {
+        ...resume,
+        taux_conversion: resume.utilisateurs ? Math.round((resume.aboutis / resume.utilisateurs) * 1000) / 10 : 0,
+        encaisse,
+      },
+      data: lignes.map((l) => {
+        const paiements = details.filter((p) => p.utilisateur_id === l.utilisateur_id);
+        const montantPaye: Record<string, number> = {};
+        for (const p of paiements) {
+          if (p.statut === StatutPaiement.REUSSI) montantPaye[p.devise] = (montantPaye[p.devise] ?? 0) + Number(p.montant);
+        }
+        return {
+          utilisateur: { uuid: l.uuid, nom: l.nom, prenom: l.prenom, email: l.email, telephone: l.telephone },
+          issue: l.reussies > 0 ? 'ABOUTI' : 'NON_ABOUTI',
+          tentatives: l.tentatives,
+          reussies: l.reussies,
+          dernier_statut: l.dernier_statut,
+          derniere_tentative: l.derniere_tentative,
+          montant_paye: Object.entries(montantPaye).map(([devise, montant]) => ({ devise, montant })),
+          paiements: paiements.map(({ utilisateur_id, ...p }) => p),
+        };
+      }),
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    };
   }
 
   async adminConfigurations(pays: string) {

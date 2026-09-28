@@ -53,6 +53,7 @@ import {
   Activity,
   Eye,
   TrendingUp,
+  ListChecks,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { NavLink } from "@/components/NavLink";
@@ -150,6 +151,7 @@ const navTree: NavItem[] = [
       { title: "Classement commissions", icon: Trophy, url: "/admin/abonnements/classement-commissions" },
       { title: "Codes & réductions", icon: Ticket, url: "/admin/codes" },
       { title: "Paiements entrants", icon: CreditCard, url: "/admin/abonnements/paiements" },
+      { title: "Suivi des paiements", icon: ListChecks, url: "/admin/abonnements/suivi-paiements" },
     ],
   },
   {
