@@ -64,36 +64,38 @@ export class FedaPayProvider extends BaseHttpPaiementProvider implements Paiemen
   }
 
   verifierSignature(rawBody: Buffer, headers: Record<string, string | string[] | undefined>, credentials?: Record<string, string>): boolean {
-    const secret = credentials?.webhook_secret ?? this.config.get<string>('FEDAPAY_WEBHOOK_SECRET');
+    // Un secret recopié depuis le tableau de bord traîne souvent un espace ou un retour à la ligne.
+    const secret = (credentials?.webhook_secret ?? this.config.get<string>('FEDAPAY_WEBHOOK_SECRET'))?.trim();
     const header = this.lire(headers, 'x-fedapay-signature');
     if (!header || !secret) return false;
 
-    // Format officiel FedaPay: t=timestamp,s=signature (hash_hmac de t.payload)
+    // Format officiel FedaPay : t=timestamp,s=signature[,s=…] — HMAC de "t.payload".
+    // Comme le SDK, on accepte l'en-tête dès qu'UNE des signatures correspond.
     if (header.includes('t=') && header.includes('s=')) {
-      try {
-        const parts = header.split(',');
-        let t = '';
-        let s = '';
-        for (const part of parts) {
-          const [k, v] = part.split('=', 2);
-          if (k?.trim() === 't') t = v?.trim() ?? '';
-          if (k?.trim() === 's') s = v?.trim() ?? '';
-        }
-        if (!t || !s) return false;
-        const attendu = createHmac('sha256', secret).update(t + '.' + rawBody.toString('utf8')).digest('hex');
-        const a = Buffer.from(attendu);
-        const b = Buffer.from(s);
-        return a.length === b.length && timingSafeEqual(a, b);
-      } catch {
-        return false;
+      let t = '';
+      const signatures: string[] = [];
+      for (const part of header.split(',')) {
+        const [k, v] = part.split('=', 2);
+        if (k?.trim() === 't') t = v?.trim() ?? '';
+        if (k?.trim() === 's' && v?.trim()) signatures.push(v.trim());
       }
+      if (!t || !signatures.length) return false;
+      const attendu = Buffer.from(createHmac('sha256', secret).update(t + '.' + rawBody.toString('utf8')).digest('hex'));
+      return signatures.some((s) => {
+        const b = Buffer.from(s);
+        return attendu.length === b.length && timingSafeEqual(attendu, b);
+      });
     }
 
     return this.hmacValide(rawBody, header, secret);
   }
 
+  /** FedaPay range la transaction sous `entity` ; `id` à la racine est celui de l'évènement. */
   parserWebhook(payload: unknown) {
-    return this.evenementGenerique(payload);
+    const p = payload as any;
+    return this.evenementGenerique(
+      p?.entity && typeof p.entity === 'object' ? { id: p.id, data: p.entity } : payload,
+    );
   }
 
   async verifierStatut(referencePrestataire: string, credentials?: Record<string, string>, mode?: ModePaiement) {
