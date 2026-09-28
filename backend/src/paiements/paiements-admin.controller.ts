@@ -8,6 +8,7 @@ import { RoleType } from '../utilisateurs/entities/utilisateur.entity';
 import { ConfigurerPaiementDto } from './dto/configurer-paiement.dto';
 import { ConfirmerPaiementDto } from './dto/confirmer-paiement.dto';
 import { FilterPaiementsDto } from './dto/filter-paiements.dto';
+import { SuiviPaiementsDto } from './dto/suivi-paiements.dto';
 import { RembourserPaiementDto } from './dto/rembourser-paiement.dto';
 import { PaiementsService } from './paiements.service';
 
@@ -23,6 +24,12 @@ export class PaiementsAdminController {
   @ApiOperation({ summary: 'Lister les paiements entrants' })
   liste(@CurrentCountry() pays: string, @Query() filtre: FilterPaiementsDto) {
     return this.paiements.adminList(pays, filtre);
+  }
+
+  @Get('suivi')
+  @ApiOperation({ summary: 'Suivi par utilisateur des paiements aboutis et non aboutis' })
+  suivi(@CurrentCountry() pays: string, @Query() filtre: SuiviPaiementsDto) {
+    return this.paiements.adminSuivi(pays, filtre);
   }
 
   @Get('configurations')
