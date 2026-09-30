@@ -10,9 +10,6 @@ import { AlertTriangle, HandCoins, Info, Loader2, Save } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { abonnementsService } from "@/lib/services/abonnements.service";
 
-/** Aperçu concret : un taux abstrait se juge mal sans montant en face. */
-const PRIX_EXEMPLES = [2000, 5000, 18000];
-
 export default function CommissionParrainage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -21,6 +18,16 @@ export default function CommissionParrainage() {
     queryKey: ["abonnements", "commission"],
     queryFn: () => abonnementsService.getCommission(),
   });
+
+  // Aperçu sur les plans réellement proposés : un taux abstrait se juge mal
+  // sans montant en face.
+  const { data: plans, isLoading: plansEnChargement } = useQuery({
+    queryKey: ["abonnements", "plans"],
+    queryFn: () => abonnementsService.getPlans(),
+  });
+  const plansActifs = (plans ?? [])
+    .filter((p) => p.est_actif)
+    .sort((a, b) => a.ordre_affichage - b.ordre_affichage);
 
   const [taux, setTaux] = useState(0);
   const [active, setActive] = useState(false);
@@ -158,16 +165,29 @@ export default function CommissionParrainage() {
               {active && taux > 0 && (
                 <div className="rounded-lg border bg-muted/20 p-3">
                   <p className="mb-2 text-sm font-medium">Ce que percevrait le bénéficiaire</p>
-                  <div className="space-y-1 text-sm text-muted-foreground">
-                    {PRIX_EXEMPLES.map((prix) => (
-                      <div key={prix} className="flex justify-between">
-                        <span>Abonnement à {prix.toLocaleString("fr-FR")} {reglage?.devise}</span>
-                        <span className="font-medium text-foreground">
-                          {Math.round((prix * taux) / 100).toLocaleString("fr-FR")} {reglage?.devise}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
+                  {plansEnChargement ? (
+                    <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                  ) : plansActifs.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">Aucun plan actif pour ce pays.</p>
+                  ) : (
+                    <div className="space-y-1 text-sm text-muted-foreground">
+                      {plansActifs.map((plan) => (
+                        <div key={plan.uuid} className="flex justify-between gap-4">
+                          <span>
+                            {plan.libelle} ({plan.duree_jours} j) —{" "}
+                            {Number(plan.prix).toLocaleString("fr-FR")} {plan.devise}
+                          </span>
+                          <span className="font-medium text-foreground">
+                            {Math.round((Number(plan.prix) * taux) / 100).toLocaleString("fr-FR")} {plan.devise}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    Au prix catalogue : si le code accorde aussi une réduction, la commission porte
+                    sur le prix remisé.
+                  </p>
                 </div>
               )}
 
