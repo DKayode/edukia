@@ -42,7 +42,14 @@ export class AuthController {
     const userId = req.user?.utilisateurId;
     const token = req.headers.authorization?.split(' ')[1];
 
-    await this.authService.revokeRefreshToken(userId);
+    // Ne fermer que la session de ce jeton : se déconnecter du web ne doit pas
+    // déconnecter le téléphone. Les jetons sans `sid` ferment tout, comme avant.
+    const sessionId = req.user?.sessionId;
+    if (sessionId) {
+      await this.authService.revokeSession(userId, sessionId);
+    } else {
+      await this.authService.revokeRefreshToken(userId);
+    }
 
     if (token) {
       await this.authService.blacklistAccessToken(token);

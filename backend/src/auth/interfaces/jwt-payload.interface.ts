@@ -22,6 +22,11 @@ export interface JwtPayload {
    * ici ».
    */
   abonnement_actif: boolean;
+  /**
+   * Id de la session (ligne `refresh_tokens`) qui a émis le jeton. Absent des
+   * jetons émis avant son introduction, acceptés jusqu'à leur expiration.
+   */
+  sid?: number;
   iat?: number;
   exp?: number;
 }
