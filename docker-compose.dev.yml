@@ -36,6 +36,7 @@ services:
       SMTP_USER: ${SMTP_USER}
       SMTP_PASS: ${SMTP_PASS}
       SMTP_SECURE: ${SMTP_SECURE}
+      MAIL_NO_REPLY_FROM: ${MAIL_NO_REPLY_FROM:-}
       # Redis
       REDIS_HOST: redis
       REDIS_PORT: 6379

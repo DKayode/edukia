@@ -110,6 +110,30 @@ export class MailService {
         }
     }
 
+    /**
+     * Expéditeur de tous les emails automatiques : personne ne lit les réponses.
+     *
+     * Le `From` ne bascule sur l'adresse no-reply que si `MAIL_NO_REPLY_FROM`
+     * est renseignée : la plupart des fournisseurs SMTP refusent un expéditeur
+     * qui n'est pas la boîte authentifiée (ou un alias déclaré), et un refus
+     * casserait la réinitialisation de mot de passe. Le `Reply-To` no-reply,
+     * lui, s'applique tout de suite — il n'engage pas la délivrabilité.
+     */
+    private expediteurNoReply() {
+        const smtpUser = this.configService.get<string>('SMTP_USER') || 'support@educ-prime.cloud';
+        const configuree = this.configService.get<string>('MAIL_NO_REPLY_FROM')?.trim();
+        const domaine = smtpUser.includes('@') ? smtpUser.split('@').pop() : 'educ-prime.cloud';
+        const noReply = configuree || `no-reply@${domaine}`;
+        return {
+            from: `"${this.appName}" <${configuree || smtpUser}>`,
+            replyTo: `"${this.appName} (ne pas répondre)" <${noReply}>`,
+            headers: {
+                'Auto-Submitted': 'auto-generated',
+                'X-Auto-Response-Suppress': 'All',
+            },
+        };
+    }
+
     private wrapHtmlTemplate(content: string, title?: string): string {
         const docTitle = title ?? this.appName;
         return `
@@ -141,6 +165,7 @@ export class MailService {
                             <!-- Footer -->
                             <tr>
                                 <td style="padding: 24px; text-align: center; font-size: 13px; color: #94a3b8; background-color: #f8fafc; border-top: 1px solid #e2e8f0;">
+                                    Ceci est un message automatique, merci de ne pas y répondre.<br/>
                                     &copy; ${new Date().getFullYear()} Edukia. Tous droits réservés.<br/>
                                 </td>
                             </tr>
@@ -163,7 +188,6 @@ export class MailService {
             throw new Error('SMTP configuration missing. Cannot send email.');
         }
 
-        const from = this.configService.get<string>('SMTP_USER') || 'support@educ-prime.cloud';
         const titre = renvoi ? 'Votre nouveau code de vérification' : 'Réinitialisation de mot de passe';
         const introduction = renvoi
             ? `<p>Voici votre <strong>nouveau</strong> code de vérification.</p>
@@ -184,7 +208,7 @@ export class MailService {
         `;
 
         const mailOptions = {
-            from: `"${this.appName}" <${from}>`,
+            ...this.expediteurNoReply(),
             to: email,
             subject: renvoi ? 'Votre nouveau code de réinitialisation' : 'Réinitialisation de votre mot de passe',
             html: this.wrapHtmlTemplate(innerContent, titre),
@@ -205,7 +229,6 @@ export class MailService {
             throw new Error('SMTP configuration missing. Cannot send email.');
         }
 
-        const from = this.configService.get<string>('SMTP_USER') || 'support@educ-prime.cloud';
         const innerContent = `
         <h2 style="color: #0f172a; margin-top: 0;">Vérification d'email</h2>
         <p>Merci de vous être inscrit sur Edukia ! Voici votre code de vérification :</p>
@@ -218,7 +241,7 @@ export class MailService {
         `;
 
         const mailOptions = {
-            from: `"${this.appName}" <${from}>`,
+            ...this.expediteurNoReply(),
             to: email,
             subject: 'Vérification de votre adresse email',
             html: this.wrapHtmlTemplate(innerContent, 'Vérification d\'email'),
@@ -239,8 +262,6 @@ export class MailService {
             this.logger.warn(`SMTP configuration missing. Cannot send ${entityType} status email.`);
             return;
         }
-
-        const from = this.configService.get<string>('SMTP_USER') || 'support@educ-prime.cloud';
 
         let statusText = '';
         let messageHtml = '';
@@ -290,7 +311,7 @@ export class MailService {
         `;
 
         const mailOptions = {
-            from: `"${this.appName}" <${from}>`,
+            ...this.expediteurNoReply(),
             to: email,
             subject: `Mise à jour de votre ${entityType} : ${statusText}`,
             html: this.wrapHtmlTemplate(innerContent, `Mise à jour de ${entityType}`),
@@ -311,8 +332,6 @@ export class MailService {
             this.logger.warn('SMTP configuration missing. Cannot send recruteur status email.');
             return;
         }
-
-        const from = this.configService.get<string>('SMTP_USER') || 'support@educ-prime.cloud';
 
         let statusText = '';
         let messageHtml = '';
@@ -342,7 +361,7 @@ export class MailService {
         `;
 
         const mailOptions = {
-            from: `"${this.appName}" <${from}>`,
+            ...this.expediteurNoReply(),
             to: email,
             subject: `Mise à jour de votre profil Recruteur : ${statusText}`,
             html: this.wrapHtmlTemplate(innerContent, 'Mise à jour profil Recruteur'),
@@ -364,10 +383,8 @@ export class MailService {
             return;
         }
 
-        const from = this.configService.get<string>('SMTP_USER') || 'support@educ-prime.cloud';
-
         const mailOptions = {
-            from: `"${this.appName}" <${from}>`,
+            ...this.expediteurNoReply(),
             to: email, // Sending directly uniquely
             subject: subject,
             html: this.wrapHtmlTemplate(htmlMessage, subject),
