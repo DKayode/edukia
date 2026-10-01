@@ -25,6 +25,7 @@ describe('AuthService — claim d’abonnement dans le jeton', () => {
       sub: 7,
       email: 'jane@example.com',
       role: 'étudiant',
+      permissions: null,
       abonnement_actif: false,
     });
   });

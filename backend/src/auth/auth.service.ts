@@ -76,13 +76,14 @@ export class AuthService {
 
   async register(pays: string, registerDto: RegisterDto): Promise<Utilisateur> {
     this.logger.log(`Tentative d'inscription via /auth/register pour: ${registerDto.email} (pays=${pays})`);
-    const hashedPassword = await bcrypt.hash(registerDto.mot_de_passe, 10);
     const user = await this.utilisateursService.inscription(pays, {
       nom: registerDto.nom,
       prenom: registerDto.prenom,
       email: registerDto.email,
       pseudo: registerDto.pseudo,
-      mot_de_passe: hashedPassword, // Note: InscriptionDto expects plain password, but we hash here? check service
+      // En clair : `inscription` hache lui-même. Le hacher ici aussi rendait le
+      // compte impossible à connecter avec son propre mot de passe.
+      mot_de_passe: registerDto.mot_de_passe,
       // Never trust a role coming from a public registration request.
       role: RoleType.ETUDIANT,
       sexe: registerDto.sexe,
@@ -112,7 +113,10 @@ export class AuthService {
    * gardes interrogent la base à chaque appel. Le claim ne sert qu'aux services
    * tiers qui n'ont pas accès à cette base.
    */
-  private async payloadJeton(user: { id: number; email: string; role: any; admin_permissions?: any }): Promise<JwtPayload> {
+  private async payloadJeton(
+    user: { id: number; email: string; role: any; admin_permissions?: any },
+    sid?: number,
+  ): Promise<JwtPayload> {
     let abonnementActif = false;
     try {
       abonnementActif = await this.entitlement.hasActiveSubscription(user.id);
@@ -124,7 +128,14 @@ export class AuthService {
         `Lecture de l'abonnement impossible pour le jeton de ${user.id} : ${err?.message ?? err}`,
       );
     }
-    return { sub: user.id, email: user.email, role: user.role, permissions: user.admin_permissions ?? null, abonnement_actif: abonnementActif };
+    return {
+      sub: user.id,
+      email: user.email,
+      role: user.role,
+      permissions: user.admin_permissions ?? null,
+      abonnement_actif: abonnementActif,
+      ...(sid !== undefined ? { sid } : {}),
+    };
   }
 
   async login(loginDto: LoginDto, appareil?: AppareilType): Promise<{ access_token: string; refresh_token: string }> {
@@ -151,13 +162,14 @@ export class AuthService {
       throw new UnauthorizedException('Identifiants invalides');
     }
 
-    // Generate access token (1d). Country is intentionally not in the
-    // payload — accounts are cross-country and switch scope via the
-    // request's ?country= / body.pays without re-authenticating.
-    const accessToken = this.jwtService.sign(await this.payloadJeton(user));
+    // La session (refresh token) d'abord : son id devient le `sid` du jeton
+    // d'accès. Remplacer la session d'un appareil invalide alors aussitôt les
+    // jetons d'accès émis pour l'ancienne — voir JwtStrategy.
+    const { token: refreshToken, sessionId } = await this.ouvrirSession(user.id, appareil || AppareilType.WEB);
 
-    // Generate refresh token (30 days)
-    const refreshToken = await this.createRefreshToken(user.id, appareil || AppareilType.WEB);
+    // Country is intentionally not in the payload — accounts are
+    // cross-country and switch scope via ?country= / body.pays.
+    const accessToken = this.jwtService.sign(await this.payloadJeton(user, sessionId));
 
     await this.recordLoginEvent(user.id, (user as any).pays, appareil || AppareilType.WEB);
 
@@ -169,6 +181,15 @@ export class AuthService {
   }
 
   async createRefreshToken(userId: number, appareil: AppareilType): Promise<string> {
+    return (await this.ouvrirSession(userId, appareil)).token;
+  }
+
+  /**
+   * Une seule session par type d'appareil : se connecter sur un second
+   * téléphone supprime celle du premier, dont les jetons d'accès sont refusés
+   * dès la requête suivante (contrôle du `sid` dans JwtStrategy).
+   */
+  private async ouvrirSession(userId: number, appareil: AppareilType): Promise<{ token: string; sessionId: number }> {
     this.logger.log(`Création d'un refresh token pour utilisateur ID: ${userId}`);
 
     // Remove old refresh tokens for this user and device
@@ -194,7 +215,7 @@ export class AuthService {
     this.logger.log(`Refresh token créé pour utilisateur ID: ${userId}, appareil: ${appareil}`);
 
     // Return the composite token (id:token)
-    return `${savedToken.id}:${token}`;
+    return { token: `${savedToken.id}:${token}`, sessionId: savedToken.id };
   }
 
   async refreshAccessToken(refreshTokenString: string): Promise<{ access_token: string }> {
@@ -244,7 +265,7 @@ export class AuthService {
     }
 
     // Generate new access token (cross-country, see login())
-    const accessToken = this.jwtService.sign(await this.payloadJeton(user));
+    const accessToken = this.jwtService.sign(await this.payloadJeton(user, validToken.id));
 
     // Une session renouvelée est une session active : sans cette ligne, seules
     // les ré-authentifications seraient comptées et les utilisateurs les plus
@@ -265,6 +286,17 @@ export class AuthService {
     }
 
     this.logger.log(`Refresh token(s) révoqué(s) pour utilisateur ID: ${userId}`);
+  }
+
+  /** Ferme la seule session de ce jeton : les autres appareils restent connectés. */
+  async revokeSession(userId: number, sessionId: number): Promise<void> {
+    await this.refreshTokenRepository.delete({ id: sessionId, utilisateur_id: userId });
+    this.logger.log(`Session ${sessionId} fermée pour utilisateur ID: ${userId}`);
+  }
+
+  /** La session existe-t-elle encore ? Une clé primaire : une lecture d'index. */
+  async isSessionActive(userId: number, sessionId: number): Promise<boolean> {
+    return this.refreshTokenRepository.exist({ where: { id: sessionId, utilisateur_id: userId } });
   }
 
   async blacklistAccessToken(token: string): Promise<void> {
